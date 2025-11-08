@@ -1,4 +1,4 @@
-# colcon-ros-cargo
+# colcon-cargo-ros2
 Build Rust ROS 2 projects with colcon using cargo-ros2.
 
 This colcon extension integrates [cargo-ros2](https://github.com/your-org/cargo-ros2) as the build tool for Rust packages in ROS 2 workspaces. cargo-ros2 automatically discovers ROS dependencies, generates Rust bindings for ROS messages/services/actions, and handles ament-compatible installation.
@@ -13,7 +13,7 @@ cargo install cargo-ros2
 
 ## Usage
 
-Packages need to have a `package.xml` in addition to `Cargo.toml`. You should see such packages classified as `ament_cargo` in the output of `colcon list`. If they are classified as `ros.ament_cargo` instead, the `colcon-ros-cargo` extension has not been found by `colcon`. Make sure that you have installed the extension (`pip install .` in this directory).
+Packages need to have a `package.xml` in addition to `Cargo.toml`. You should see such packages classified as `ament_cargo` in the output of `colcon list`. If they are classified as `ros.cargo_ros2` instead, the `colcon-cargo-ros2` extension has not been found by `colcon`. Make sure that you have installed the extension (`pip install .` in this directory).
 
 Simply list dependencies (other `ament_cargo` packages or message packages) in `Cargo.toml` and `package.xml` as if they were hosted on crates.io. cargo-ros2 will:
 - Discover ROS dependencies via ament_index

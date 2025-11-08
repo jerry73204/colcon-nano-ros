@@ -18,32 +18,28 @@ class AmentCargoTestTask(TaskExtensionPoint):
 
     def __init__(self):  # noqa: D107
         super().__init__()
-        satisfies_version(TaskExtensionPoint.EXTENSION_POINT_VERSION, '^1.0')
+        satisfies_version(TaskExtensionPoint.EXTENSION_POINT_VERSION, "^1.0")
 
     def add_arguments(self, *, parser):  # noqa: D102
         parser.add_argument(
-            '--cargo-args',
-            nargs='*',
+            "--cargo-args",
+            nargs="*",
             default=[],
-            help='Arbitrary arguments passed to cargo test')
+            help="Arbitrary arguments passed to cargo test",
+        )
 
     async def test(self):  # noqa: D102
         """Run tests using cargo test."""
         args = self.context.args
-        cmd = ['cargo', 'test']
+        cmd = ["cargo", "test"]
 
         # Add additional cargo arguments
-        if hasattr(args, 'cargo_args') and args.cargo_args:
+        if hasattr(args, "cargo_args") and args.cargo_args:
             cmd.extend(args.cargo_args)
 
         if self.context.dry_run:
-            logger.info(f'Would execute: {" ".join(cmd)}')
+            logger.info(f"Would execute: {' '.join(cmd)}")
             return 0
 
         # Execute the test command
-        return await run(
-            self.context,
-            cmd,
-            cwd=self.context.pkg.path,
-            env=None
-        )
+        return await run(self.context, cmd, cwd=self.context.pkg.path, env=None)

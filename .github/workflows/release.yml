@@ -32,7 +32,7 @@ jobs:
     # Dedicated environments with protections for publishing are strongly recommended.
     environment:
       name: release
-      url: https://pypi.org/p/colcon-ros-cargo
+      url: https://pypi.org/p/colcon-cargo-ros2
 
     steps:
       - name: Retrieve release distributions
