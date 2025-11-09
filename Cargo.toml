@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "cargo-ros2",
     "rosidl-bindgen",
     "rosidl-parser",
     "rosidl-codegen",
