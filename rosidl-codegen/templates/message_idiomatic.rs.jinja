@@ -27,13 +27,6 @@ impl {{ message_name }} {
     }
 }
 
-{% if !constants.is_empty() %}
-// Module-level constants for backward compatibility and convenience
-{% for constant in constants %}
-pub const {{ constant.name }}: {{ constant.rust_type }} = {{ message_name }}::{{ constant.name }};
-{% endfor %}
-{% endif %}
-
 impl Default for {{ message_name }} {
     fn default() -> Self {
         // Leverage FFI message's C init function to get correct default values

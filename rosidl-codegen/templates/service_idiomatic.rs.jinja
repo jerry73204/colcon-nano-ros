@@ -31,13 +31,6 @@ pub mod request {
         }
     }
 
-    {% if !request_constants.is_empty() %}
-    // Module-level constants for backward compatibility
-    {% for constant in request_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ service_name }}Request::{{ constant.name }};
-    {% endfor %}
-    {% endif %}
-
     impl Default for {{ service_name }}Request {
         fn default() -> Self {
             // Leverage FFI message's C init function to get correct default values
@@ -108,13 +101,6 @@ pub mod response {
             Self::default()
         }
     }
-
-    {% if !response_constants.is_empty() %}
-    // Module-level constants for backward compatibility
-    {% for constant in response_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ service_name }}Response::{{ constant.name }};
-    {% endfor %}
-    {% endif %}
 
     impl Default for {{ service_name }}Response {
         fn default() -> Self {
