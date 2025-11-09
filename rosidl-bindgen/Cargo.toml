@@ -1,5 +1,5 @@
 [package]
-name = "cargo-ros2-bindgen"
+name = "rosidl-bindgen"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
@@ -8,11 +8,11 @@ repository.workspace = true
 description = "Rust binding generator for ROS 2 interface packages"
 
 [lib]
-name = "cargo_ros2_bindgen"
+name = "rosidl_bindgen"
 path = "src/lib.rs"
 
 [[bin]]
-name = "cargo-ros2-bindgen"
+name = "rosidl-bindgen"
 path = "src/main.rs"
 
 [dependencies]
