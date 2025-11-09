@@ -180,15 +180,17 @@ class WorkspaceBindingGenerator:
                 continue
 
             # Check if bindings already exist and are up-to-date
-            binding_dir = self.bindings_dir / pkg_name
+            binding_dir = self.bindings_dir / pkg_name / pkg_name
             if binding_dir.exists():
                 # TODO: Add checksum-based cache validation
                 logger.debug(f"Bindings already exist for {pkg_name}")
                 continue
 
             # Generate bindings using cargo ros2 bindgen
+            # Pass workspace-level bindings_dir, not package-specific dir
+            # (generate_package will create the package subdirectory)
             logger.info(f"Generating bindings for {pkg_name}")
-            self._run_bindgen(pkg_name, pkg_share, binding_dir, verbose)
+            self._run_bindgen(pkg_name, pkg_share, self.bindings_dir, verbose)
 
             # Post-process Cargo.toml to remove path dependencies
             self._fixup_cargo_toml(pkg_name, binding_dir)
