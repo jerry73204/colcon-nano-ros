@@ -42,145 +42,18 @@ pub struct GeneratedRustPackage {
 }
 
 /// Ensure rosidl_runtime_rs crate exists in the output directory
-/// This shared crate is generated once and used by all packages
+/// This shared crate is extracted once from the embedded source and used by all packages
 fn ensure_rosidl_runtime_rs(output_dir: &Path) -> Result<()> {
     let runtime_rs_dir = output_dir.join("rosidl_runtime_rs");
 
-    // If it already exists, no need to copy
+    // If it already exists, no need to extract
     if runtime_rs_dir.exists() {
         return Ok(());
     }
 
-    // Find the source rosidl_runtime_rs directory
-    // Try multiple search strategies:
-    let current_exe = std::env::current_exe().wrap_err("Failed to get current executable path")?;
-    let current_dir = std::env::current_dir().wrap_err("Failed to get current directory")?;
-
-    // Try multiple possible paths for the source crate
-    let mut possible_paths = vec![];
-
-    // 1. Environment variable (highest priority)
-    if let Ok(env_path) = std::env::var("ROSIDL_RUNTIME_RS_PATH") {
-        possible_paths.push(PathBuf::from(env_path));
-    }
-
-    // 2. If running from cargo build in workspace (3 levels up from target/release/cargo-ros2-bindgen)
-    if let Some(workspace_root) = current_exe
-        .parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| p.parent())
-    {
-        possible_paths.push(workspace_root.join("rosidl-runtime-rs"));
-    }
-
-    // 3. Search upward from current directory to find cargo-ros2 workspace
-    let mut search_dir = current_dir.as_path();
-    for _ in 0..10 {
-        // Limit search depth
-        possible_paths.push(search_dir.join("rosidl-runtime-rs"));
-        if search_dir.join("Cargo.toml").exists() {
-            // Check if this is the cargo-ros2 workspace by looking for rosidl-runtime-rs
-            let candidate = search_dir.join("rosidl-runtime-rs");
-            if candidate.exists() {
-                possible_paths.insert(0, candidate); // Prioritize this find
-                break;
-            }
-        }
-        if let Some(parent) = search_dir.parent() {
-            search_dir = parent;
-        } else {
-            break;
-        }
-    }
-
-    // 4. Fallback: try current directory
-    possible_paths.push(PathBuf::from("rosidl-runtime-rs"));
-
-    let source_dir = possible_paths
-        .into_iter()
-        .find(|p| p.exists() && p.join("Cargo.toml").exists())
-        .ok_or_else(|| {
-            eyre::eyre!(
-                "Could not find rosidl-runtime-rs source directory.\n\
-             Searched paths:\n\
-             - Environment variable: ROSIDL_RUNTIME_RS_PATH\n\
-             - Relative to executable: {:?}\n\
-             - Upward from current directory: {:?}\n\
-             Please ensure rosidl-runtime-rs exists in the cargo-ros2 workspace,\n\
-             or set ROSIDL_RUNTIME_RS_PATH environment variable.",
-                current_exe,
-                current_dir
-            )
-        })?;
-
-    // Copy the entire directory
-    copy_dir_all(&source_dir, &runtime_rs_dir).wrap_err_with(|| {
-        format!(
-            "Failed to copy rosidl_runtime_rs from {} to {}",
-            source_dir.display(),
-            runtime_rs_dir.display()
-        )
-    })?;
-
-    // Fix Cargo.toml to remove workspace inheritance
-    fix_cargo_toml_workspace_inheritance(&runtime_rs_dir)?;
-
-    Ok(())
-}
-
-/// Fix Cargo.toml by replacing workspace inheritance with explicit values
-fn fix_cargo_toml_workspace_inheritance(crate_dir: &Path) -> Result<()> {
-    let cargo_toml_path = crate_dir.join("Cargo.toml");
-    let content =
-        std::fs::read_to_string(&cargo_toml_path).wrap_err("Failed to read Cargo.toml")?;
-
-    // Replace workspace inheritance with explicit values
-    // Also fix package name to use underscore (rosidl_runtime_rs) instead of dash
-    let fixed_content = content
-        .replace(
-            "name = \"rosidl-runtime-rs\"",
-            "name = \"rosidl_runtime_rs\"",
-        )
-        .replace("version.workspace = true", "version = \"0.1.0\"")
-        .replace("authors.workspace = true", "authors = []")
-        .replace("edition.workspace = true", "edition = \"2021\"")
-        .replace(
-            "license.workspace = true",
-            "license = \"MIT OR Apache-2.0\"",
-        )
-        .replace(
-            "repository.workspace = true",
-            "repository = \"https://github.com/your-org/cargo-ros2\"",
-        );
-
-    std::fs::write(&cargo_toml_path, fixed_content).wrap_err("Failed to write fixed Cargo.toml")?;
-
-    Ok(())
-}
-
-/// Recursively copy a directory
-fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)?;
-
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        // Skip target directories and hidden files
-        if let Some(name) = entry.file_name().to_str() {
-            if name == "target" || name.starts_with('.') {
-                continue;
-            }
-        }
-
-        if file_type.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
-    }
+    // Extract embedded rosidl-runtime-rs source
+    crate::embedded::extract_embedded_runtime_rs(output_dir)
+        .wrap_err("Failed to extract embedded rosidl_runtime_rs")?;
 
     Ok(())
 }

@@ -3,4 +3,5 @@
 //! This library provides modules for discovering and generating ROS 2 bindings.
 
 pub mod ament;
+mod embedded;
 pub mod generator;
