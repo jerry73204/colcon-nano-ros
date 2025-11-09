@@ -452,6 +452,44 @@ new_string: new content
 
 **Exception**: Only use Bash for actual system commands (git, cargo, npm, make, colcon, etc.), never for file I/O operations.
 
+### Temporary Files and Scripts
+
+**CRITICAL RULE: All temporary files MUST be created in `$PROJECT_ROOT/tmp/` using Write/Edit tools**
+
+**For ALL temporary files** (scripts, test data, build artifacts, analysis output):
+- ✅ **ALWAYS**: Use `Write` tool to create files in `tmp/`
+- ✅ **ALWAYS**: Use `Edit` tool to modify files in `tmp/`
+- ❌ **NEVER**: Use bash redirects (`>`, `>>`, `cat <<EOF`, etc.) for temp files
+- ❌ **NEVER**: Create temp files outside `tmp/` directory
+
+**Rationale**:
+- Keeps workspace clean and organized
+- `tmp/` is gitignored by default
+- Write/Edit tools provide better error handling
+- Easier to track what files are created
+- Temp files can be referenced later if needed
+
+**Example**:
+```
+# ✅ CORRECT:
+Write: tmp/test_data.json
+Content: {"key": "value"}
+
+Write: tmp/build_script.sh
+Content: |
+  #!/bin/bash
+  cargo build --release
+
+Bash: chmod +x tmp/build_script.sh && tmp/build_script.sh
+
+# ❌ WRONG:
+Bash: echo '{"key": "value"}' > /tmp/test_data.json
+Bash: cat > build_script.sh <<'EOF'
+  #!/bin/bash
+  cargo build --release
+EOF
+```
+
 ### Temporary Python Scripts
 
 **IMPORTANT**: When executing Python code for testing, exploration, or validation, ALWAYS create temporary scripts in `$PROJECT_ROOT/tmp/` instead of using inline code execution.
