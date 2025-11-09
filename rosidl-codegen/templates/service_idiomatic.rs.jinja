@@ -1,0 +1,165 @@
+// Idiomatic Rust layer - user-friendly types
+// Package: {{ package_name }}
+// Service: {{ service_name }}
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+// Request message
+pub mod request {
+    #[cfg(feature = "serde")]
+    use super::{Deserialize, Serialize};
+
+    {% for constant in request_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+    {% endfor %}
+
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct {{ service_name }}Request {
+        {% for field in request_fields %}
+        pub {{ field.name }}: {{ field.rust_type }},
+        {% endfor %}
+    }
+
+    impl {{ service_name }}Request {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl Default for {{ service_name }}Request {
+        fn default() -> Self {
+            // Leverage FFI message's C init function to get correct default values
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request::default())
+        }
+    }
+
+    // Conversion from FFI layer
+    impl From<crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request> for {{ service_name }}Request {
+        fn from(rmw: crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request) -> Self {
+            Self {
+                {% for field in request_fields %}
+                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Conversion to FFI layer
+    impl From<{{ service_name }}Request> for crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request {
+        fn from(idiomatic: {{ service_name }}Request) -> Self {
+            Self {
+                {% for field in request_fields %}
+                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Message trait implementation for rosidl_runtime_rs
+    impl crate::rosidl_runtime_rs::Message for {{ service_name }}Request {
+        type RmwMsg = crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request;
+
+        fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+            // Convert from idiomatic to RMW format
+            std::borrow::Cow::Owned(msg_cow.into_owned().into())
+        }
+
+        fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+            // Convert from RMW to idiomatic format
+            msg.into()
+        }
+    }
+}
+
+// Response message
+pub mod response {
+    #[cfg(feature = "serde")]
+    use super::{Deserialize, Serialize};
+
+    {% for constant in response_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+    {% endfor %}
+
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct {{ service_name }}Response {
+        {% for field in response_fields %}
+        pub {{ field.name }}: {{ field.rust_type }},
+        {% endfor %}
+    }
+
+    impl {{ service_name }}Response {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl Default for {{ service_name }}Response {
+        fn default() -> Self {
+            // Leverage FFI message's C init function to get correct default values
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response::default())
+        }
+    }
+
+    // Conversion from FFI layer
+    impl From<crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response> for {{ service_name }}Response {
+        fn from(rmw: crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response) -> Self {
+            Self {
+                {% for field in response_fields %}
+                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Conversion to FFI layer
+    impl From<{{ service_name }}Response> for crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response {
+        fn from(idiomatic: {{ service_name }}Response) -> Self {
+            Self {
+                {% for field in response_fields %}
+                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Message trait implementation for rosidl_runtime_rs
+    impl crate::rosidl_runtime_rs::Message for {{ service_name }}Response {
+        type RmwMsg = crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response;
+
+        fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+            // Convert from idiomatic to RMW format
+            std::borrow::Cow::Owned(msg_cow.into_owned().into())
+        }
+
+        fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+            // Convert from RMW to idiomatic format
+            msg.into()
+        }
+    }
+}
+
+// Re-export for convenience
+pub use request::{{ service_name }}Request;
+pub use response::{{ service_name }}Response;
+
+// Service type support
+#[link(name = "{{ package_name }}__rosidl_typesupport_c")]
+extern "C" {
+    fn rosidl_typesupport_c__get_service_type_support_handle__{{ package_name }}__srv__{{ service_name }}() -> *const std::ffi::c_void;
+}
+
+// Service struct (zero-sized type)
+pub struct {{ service_name }};
+
+impl crate::rosidl_runtime_rs::Service for {{ service_name }} {
+    type Request = {{ service_name }}Request;
+    type Response = {{ service_name }}Response;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        // SAFETY: No preconditions for this function
+        unsafe { rosidl_typesupport_c__get_service_type_support_handle__{{ package_name }}__srv__{{ service_name }}() }
+    }
+}

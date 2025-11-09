@@ -1,0 +1,16 @@
+[package]
+name = "rosidl-runtime-rs"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Runtime support library for ROS 2 Rust bindings"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[features]
+default = []
+
+[dev-dependencies]

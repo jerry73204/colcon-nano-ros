@@ -1,0 +1,215 @@
+// Idiomatic Rust layer - user-friendly types
+// Package: {{ package_name }}
+// Action: {{ action_name }}
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+// Goal message
+pub mod goal {
+    #[cfg(feature = "serde")]
+    use super::{Deserialize, Serialize};
+
+    {% for constant in goal_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+    {% endfor %}
+
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct {{ action_name }}Goal {
+        {% for field in goal_fields %}
+        pub {{ field.name }}: {{ field.rust_type }},
+        {% endfor %}
+    }
+
+    impl {{ action_name }}Goal {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl Default for {{ action_name }}Goal {
+        fn default() -> Self {
+            // Leverage FFI message's C init function to get correct default values
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal::default())
+        }
+    }
+
+    // Conversion from FFI layer
+    impl From<crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal> for {{ action_name }}Goal {
+        fn from(rmw: crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal) -> Self {
+            Self {
+                {% for field in goal_fields %}
+                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Conversion to FFI layer
+    impl From<{{ action_name }}Goal> for crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal {
+        fn from(idiomatic: {{ action_name }}Goal) -> Self {
+            Self {
+                {% for field in goal_fields %}
+                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Message trait implementation for rosidl_runtime_rs
+    impl crate::rosidl_runtime_rs::Message for {{ action_name }}Goal {
+        type RmwMsg = crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal;
+
+        fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+            // Convert from idiomatic to RMW format
+            std::borrow::Cow::Owned(msg_cow.into_owned().into())
+        }
+
+        fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+            // Convert from RMW to idiomatic format
+            msg.into()
+        }
+    }
+}
+
+// Result message
+pub mod result {
+    #[cfg(feature = "serde")]
+    use super::{Deserialize, Serialize};
+
+    {% for constant in result_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+    {% endfor %}
+
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct {{ action_name }}Result {
+        {% for field in result_fields %}
+        pub {{ field.name }}: {{ field.rust_type }},
+        {% endfor %}
+    }
+
+    impl {{ action_name }}Result {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl Default for {{ action_name }}Result {
+        fn default() -> Self {
+            // Leverage FFI message's C init function to get correct default values
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result::default())
+        }
+    }
+
+    // Conversion from FFI layer
+    impl From<crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result> for {{ action_name }}Result {
+        fn from(rmw: crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result) -> Self {
+            Self {
+                {% for field in result_fields %}
+                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Conversion to FFI layer
+    impl From<{{ action_name }}Result> for crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result {
+        fn from(idiomatic: {{ action_name }}Result) -> Self {
+            Self {
+                {% for field in result_fields %}
+                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Message trait implementation for rosidl_runtime_rs
+    impl crate::rosidl_runtime_rs::Message for {{ action_name }}Result {
+        type RmwMsg = crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result;
+
+        fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+            // Convert from idiomatic to RMW format
+            std::borrow::Cow::Owned(msg_cow.into_owned().into())
+        }
+
+        fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+            // Convert from RMW to idiomatic format
+            msg.into()
+        }
+    }
+}
+
+// Feedback message
+pub mod feedback {
+    #[cfg(feature = "serde")]
+    use super::{Deserialize, Serialize};
+
+    {% for constant in feedback_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+    {% endfor %}
+
+    #[derive(Debug, Clone, PartialEq)]
+    #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+    pub struct {{ action_name }}Feedback {
+        {% for field in feedback_fields %}
+        pub {{ field.name }}: {{ field.rust_type }},
+        {% endfor %}
+    }
+
+    impl {{ action_name }}Feedback {
+        pub fn new() -> Self {
+            Self::default()
+        }
+    }
+
+    impl Default for {{ action_name }}Feedback {
+        fn default() -> Self {
+            // Leverage FFI message's C init function to get correct default values
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback::default())
+        }
+    }
+
+    // Conversion from FFI layer
+    impl From<crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback> for {{ action_name }}Feedback {
+        fn from(rmw: crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback) -> Self {
+            Self {
+                {% for field in feedback_fields %}
+                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Conversion to FFI layer
+    impl From<{{ action_name }}Feedback> for crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback {
+        fn from(idiomatic: {{ action_name }}Feedback) -> Self {
+            Self {
+                {% for field in feedback_fields %}
+                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% endfor %}
+            }
+        }
+    }
+
+    // Message trait implementation for rosidl_runtime_rs
+    impl crate::rosidl_runtime_rs::Message for {{ action_name }}Feedback {
+        type RmwMsg = crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback;
+
+        fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
+            // Convert from idiomatic to RMW format
+            std::borrow::Cow::Owned(msg_cow.into_owned().into())
+        }
+
+        fn from_rmw_message(msg: Self::RmwMsg) -> Self {
+            // Convert from RMW to idiomatic format
+            msg.into()
+        }
+    }
+}
+
+// Re-export for convenience
+pub use goal::{{ action_name }}Goal;
+pub use result::{{ action_name }}Result;
+pub use feedback::{{ action_name }}Feedback;

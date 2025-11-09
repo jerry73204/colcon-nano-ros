@@ -1,0 +1,27 @@
+[package]
+name = "cargo-ros2-bindgen"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust binding generator for ROS 2 interface packages"
+
+[lib]
+name = "cargo_ros2_bindgen"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cargo-ros2-bindgen"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+eyre = "0.6"
+serde.workspace = true
+serde_json.workspace = true
+rosidl-codegen.workspace = true
+rosidl-parser.workspace = true
+
+[dev-dependencies]
+tempfile = "3.8"
