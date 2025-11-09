@@ -95,39 +95,39 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Run rosidl-bindgen to generate bindings for a single package
+/// Run bindgen to generate bindings for a single package
 fn run_bindgen(
-    package: &str,
+    package_name: &str,
     output: &Path,
     package_path: Option<&Path>,
     verbose: bool,
 ) -> Result<()> {
-    use std::process::Command;
-
-    println!("Generating bindings for {}...", package);
-
-    // Build rosidl-bindgen command
-    let mut cmd = Command::new("rosidl-bindgen");
-    cmd.arg("--package")
-        .arg(package)
-        .arg("--output")
-        .arg(output);
-
-    if let Some(path) = package_path {
-        cmd.arg("--package-path").arg(path);
-    }
+    use rosidl_bindgen::ament::{AmentIndex, Package};
+    use rosidl_bindgen::generator;
 
     if verbose {
-        cmd.arg("--verbose");
+        println!("Generating bindings for {}...", package_name);
     }
 
-    // Execute
-    let status = cmd
-        .status()
-        .wrap_err("Failed to execute rosidl-bindgen. Is it installed?")?;
+    // Get package either from path or ament index
+    let package = if let Some(share_path) = package_path {
+        Package::from_share_dir(share_path.to_path_buf())?
+    } else {
+        let index = AmentIndex::from_env()?;
+        index
+            .find_package(package_name)
+            .ok_or_else(|| eyre!("Package '{}' not found in ament index", package_name))?
+            .clone()
+    };
 
-    if !status.success() {
-        return Err(eyre!("rosidl-bindgen failed for package '{}'", package));
+    // Generate bindings using library
+    let result = generator::generate_package(&package, output)?;
+
+    if verbose {
+        println!(
+            "✓ Generated {} messages, {} services, {} actions for {}",
+            result.message_count, result.service_count, result.action_count, package_name
+        );
     }
 
     println!("✓ Bindings generated to {}", output.display());

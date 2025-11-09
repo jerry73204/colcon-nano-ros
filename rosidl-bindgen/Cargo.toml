@@ -11,10 +11,6 @@ description = "Rust binding generator for ROS 2 interface packages"
 name = "rosidl_bindgen"
 path = "src/lib.rs"
 
-[[bin]]
-name = "rosidl-bindgen"
-path = "src/main.rs"
-
 [dependencies]
 clap.workspace = true
 eyre = "0.6"

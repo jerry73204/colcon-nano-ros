@@ -58,9 +58,9 @@ format: format-rust format-python
 # Lint and check everything (Rust + Python)
 check: check-rust check-python
 
-# Install both Rust binaries and Python package
+# Install Rust binary and Python package
 install:
-    cargo install --path cargo-ros2-bindgen
+    cargo install --path cargo-ros2
     pip3 install -e colcon-cargo-ros2/ --break-system-packages
 
 # Clean all build artifacts

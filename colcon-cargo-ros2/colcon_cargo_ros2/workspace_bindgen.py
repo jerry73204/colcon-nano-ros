@@ -186,7 +186,7 @@ class WorkspaceBindingGenerator:
                 logger.debug(f"Bindings already exist for {pkg_name}")
                 continue
 
-            # Generate bindings using cargo-ros2-bindgen
+            # Generate bindings using cargo ros2 bindgen
             logger.info(f"Generating bindings for {pkg_name}")
             self._run_bindgen(pkg_name, pkg_share, binding_dir, verbose)
 
@@ -196,7 +196,7 @@ class WorkspaceBindingGenerator:
     def _run_bindgen(
         self, pkg_name: str, pkg_share: Path, output_dir: Path, verbose: bool
     ):
-        """Run cargo-ros2-bindgen to generate bindings for a single package.
+        """Run cargo ros2 bindgen to generate bindings for a single package.
 
         Args:
             pkg_name: Name of the ROS package
@@ -205,7 +205,9 @@ class WorkspaceBindingGenerator:
             verbose: Enable verbose output
         """
         cmd = [
-            "cargo-ros2-bindgen",
+            "cargo",
+            "ros2",
+            "bindgen",
             "--package",
             pkg_name,
             "--package-path",
@@ -231,7 +233,7 @@ class WorkspaceBindingGenerator:
     def _fixup_cargo_toml(self, pkg_name: str, binding_dir: Path):
         """Post-process Cargo.toml to convert path dependencies to version requirements.
 
-        This is necessary because cargo-ros2-bindgen generates bindings with local
+        This is necessary because cargo ros2 bindgen generates bindings with local
         path dependencies (e.g., `std_msgs = { path = "../std_msgs" }`), but we want
         to use the .cargo/config.toml patches instead.
 
@@ -383,7 +385,7 @@ class WorkspaceBindingGenerator:
         for pkg_name in sorted(ros_packages.keys()):
             binding_dir = self.bindings_dir / pkg_name
             if binding_dir.exists():
-                # cargo-ros2-bindgen creates nested structure: pkg_name/pkg_name/Cargo.toml
+                # rosidl-bindgen creates nested structure: pkg_name/pkg_name/Cargo.toml
                 # Check if the nested package directory exists
                 nested_pkg_dir = binding_dir / pkg_name
                 if nested_pkg_dir.exists() and (nested_pkg_dir / "Cargo.toml").exists():

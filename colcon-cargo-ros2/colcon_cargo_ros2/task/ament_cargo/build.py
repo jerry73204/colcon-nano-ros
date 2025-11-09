@@ -57,25 +57,30 @@ class AmentCargoBuildTask(TaskExtensionPoint):
 
         # Execute cargo build
         result = await run(self.context, cmd, cwd=self.context.pkg.path, env=None)
+        if result and result.returncode != 0:
+            return result.returncode
+
+        # Step 4: Install binaries and create package markers
+        rc = self._install_package()
+        if rc:
+            return rc
 
         # Return the exit code
-        return result.returncode if result else 0
+        return 0
 
     async def _prepare_workspace_bindings(self):
         """Generate workspace-level ROS 2 bindings (done once for entire workspace)."""
-        # Check for cargo-ros2-bindgen binary
+        # Check for cargo-ros2 binary
         try:
             result = subprocess.run(
-                ["cargo-ros2-bindgen", "--version"], capture_output=True, check=True
+                ["cargo", "ros2", "--help"], capture_output=True, check=True
             )
-            logger.debug(
-                f"cargo-ros2-bindgen version: {result.stdout.decode().strip()}"
-            )
+            logger.debug("cargo-ros2 found")
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.error(
-                "\n\ncargo-ros2-bindgen not found!"
-                "\n\nPlease ensure colcon-cargo-ros2 is installed correctly:"
-                "\n $ pip install colcon-cargo-ros2\n"
+                "\n\ncargo-ros2 not found!"
+                "\n\nPlease ensure cargo-ros2 is installed:"
+                "\n $ cargo install --path cargo-ros2\n"
             )
             return 1
 
@@ -132,3 +137,45 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         cmd.extend(cargo_args)
 
         return cmd
+
+    def _install_package(self):
+        """Install package binaries and create ament markers.
+
+        Calls 'cargo ros2 install' to handle installation to ament layout.
+        """
+        args = self.context.args
+
+        # Determine build profile
+        profile = "release" if hasattr(args, "release") and args.release else "debug"
+
+        # Build cargo ros2 install command
+        cmd = [
+            "cargo",
+            "ros2",
+            "install",
+            "--install-base",
+            args.install_base,
+            "--profile",
+            profile,
+        ]
+
+        # Execute installation
+        try:
+            result = subprocess.run(
+                cmd, cwd=self.context.pkg.path, check=False, capture_output=True
+            )
+
+            if result.returncode != 0:
+                logger.error(f"cargo ros2 install failed: {result.stderr.decode()}")
+                return result.returncode
+
+            logger.info("Package installed successfully")
+            return 0
+
+        except FileNotFoundError:
+            logger.error(
+                "\n\ncargo-ros2 not found!"
+                "\n\nPlease ensure cargo-ros2 is installed:"
+                "\n  $ cargo install --path cargo-ros2\n"
+            )
+            return 1
