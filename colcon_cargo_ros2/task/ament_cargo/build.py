@@ -1,6 +1,7 @@
 # Licensed under the Apache License, Version 2.0
 
 from pathlib import Path
+import os
 import subprocess
 
 from colcon_core.logging import colcon_logger
@@ -8,19 +9,26 @@ from colcon_core.plugin_system import satisfies_version
 from colcon_core.shell import create_environment_hook
 from colcon_core.task import TaskExtensionPoint, run
 
+from colcon_cargo_ros2.workspace_bindgen import generate_workspace_bindings
+
 
 logger = colcon_logger.getChild(__name__)
 
 
 class AmentCargoBuildTask(TaskExtensionPoint):
-    """A build task for packages with Cargo.toml + package.xml using cargo-ros2.
+    """A build task for Rust ROS 2 packages using workspace-level binding generation.
 
-    cargo-ros2 handles ROS 2 binding generation, .cargo/config.toml patching,
-    and installation automatically. This task is a simple orchestration layer
-    that invokes cargo-ros2.
+    This task implements a two-phase approach:
+    1. Workspace-level binding generation (done once before all builds)
+    2. Per-package cargo build (just compiles, no binding generation)
 
-    All dependency resolution and config.toml management is delegated to
-    cargo-ros2 to avoid race conditions.
+    The workspace-level binding generation:
+    - Discovers all ROS dependencies from ament_index and workspace
+    - Generates ALL bindings to build/ros2_bindings/
+    - Detects Cargo workspace(s) and writes .cargo/config.toml
+    - Uses lock file to ensure only one process does generation
+
+    This eliminates race conditions and improves build performance.
     """
 
     def __init__(self):  # noqa: D107
@@ -28,51 +36,74 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         satisfies_version(TaskExtensionPoint.EXTENSION_POINT_VERSION, "^1.0")
 
     def add_arguments(self, *, parser):  # noqa: D102
-        parser.add_argument(
-            "--lookup-in-workspace",
-            action="store_true",
-            help="Look up dependencies in the workspace directory. "
-            "By default, dependencies are looked up only in the installation "
-            "prefixes. This option is useful for setting up a "
-            ".cargo/config.toml for subsequent builds with cargo.",
-        )
+        # Note: --cargo-args is already defined by colcon core, so we don't redefine it
+        pass
 
     async def build(self, *, additional_hooks=None):  # noqa: D102
-        """Build the Rust ROS 2 package using cargo-ros2."""
+        """Build the Rust ROS 2 package using workspace-level binding generation."""
         additional_hooks = [] if additional_hooks is None else additional_hooks
 
-        # Prepare: check for cargo-ros2 and create environment hooks
-        rc = await self._prepare(additional_hooks)
+        # Step 1: Generate workspace-level bindings (done once for entire workspace)
+        rc = await self._prepare_workspace_bindings()
         if rc:
             return rc
 
-        # Build and install: delegated to cargo-ros2
+        # Step 2: Create environment hooks
+        await self._create_environment_hooks(additional_hooks)
+
+        # Step 3: Build this package with cargo
         args = self.context.args
         cmd = self._build_cmd(args.cargo_args if hasattr(args, "cargo_args") else [])
 
-        # Add --lookup-in-workspace flag if requested
-        if args.lookup_in_workspace:
-            cmd.append("--lookup-in-workspace")
-
-        # Execute the build command
+        # Execute cargo build
         result = await run(self.context, cmd, cwd=self.context.pkg.path, env=None)
 
-        # Return the exit code (colcon expects an integer, not CompletedProcess)
+        # Return the exit code
         return result.returncode if result else 0
 
-    async def _prepare(self, additional_hooks):
-        """Check prerequisites and create environment hooks."""
-        # Check for cargo-ros2
-        cargo_ros2_check = "cargo ros2 --help".split()
-        if subprocess.run(cargo_ros2_check, capture_output=True).returncode != 0:
+    async def _prepare_workspace_bindings(self):
+        """Generate workspace-level ROS 2 bindings (done once for entire workspace)."""
+        # Check for cargo-ros2-bindgen binary
+        try:
+            result = subprocess.run(
+                ["cargo-ros2-bindgen", "--version"], capture_output=True, check=True
+            )
+            logger.debug(
+                f"cargo-ros2-bindgen version: {result.stdout.decode().strip()}"
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
             logger.error(
-                "\n\nament_cargo package found but cargo-ros2 was not detected."
-                "\n\nPlease install it by running:"
-                "\n $ cargo install cargo-ros2\n"
+                "\n\ncargo-ros2-bindgen not found!"
+                "\n\nPlease ensure colcon-cargo-ros2 is installed correctly:"
+                "\n $ pip install colcon-cargo-ros2\n"
             )
             return 1
 
-        # Create environment hook for AMENT_PREFIX_PATH
+        # Derive workspace paths from install_base
+        args = self.context.args
+        workspace_root = Path(os.path.abspath(os.path.join(args.install_base, "../..")))
+        build_base = Path(os.path.abspath(os.path.join(args.build_base, "..")))
+        install_base = Path(args.install_base).parent  # install/ directory
+
+        # Generate workspace-level bindings
+        # This uses a lock file, so only the first package will actually generate
+        # All other packages will see the lock and skip generation
+        try:
+            verbose = getattr(args, "verbose", False)
+            generate_workspace_bindings(
+                workspace_root, build_base, install_base, args, verbose
+            )
+        except Exception as e:
+            logger.error(f"Workspace binding generation failed: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
+            return 1
+
+        return 0
+
+    async def _create_environment_hooks(self, additional_hooks):
+        """Create environment hooks for ROS 2 integration."""
         args = self.context.args
         additional_hooks.extend(
             create_environment_hook(
@@ -85,31 +116,19 @@ class AmentCargoBuildTask(TaskExtensionPoint):
             )
         )
 
-        return 0
-
     def _build_cmd(self, cargo_args):
-        """Build the cargo ros2 ament-build command."""
-        args = self.context.args
-        cmd = [
-            "cargo",
-            "ros2",
-            "ament-build",
-            "--install-base",
-            args.install_base,
-        ]
+        """Build the cargo build command.
+
+        Since bindings are generated at workspace-level, we just need to run cargo build.
+        The .cargo/config.toml has already been written with all the patches.
+        """
+        cmd = ["cargo", "build"]
 
         # Handle None cargo_args
         if cargo_args is None:
             cargo_args = []
 
-        # Add --release if present in cargo_args
-        if "--release" in cargo_args:
-            cmd.append("--release")
-
-        # Pass through all additional cargo args
-        # (they will be forwarded to cargo build after bindings are generated)
-        non_release_args = [arg for arg in cargo_args if arg != "--release"]
-        if non_release_args:
-            cmd.extend(["--"] + non_release_args)
+        # Add all cargo arguments
+        cmd.extend(cargo_args)
 
         return cmd
