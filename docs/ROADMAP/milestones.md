@@ -31,7 +31,12 @@
 - ✅ Comprehensive testing & docs (Subphase 3.4)
 
 ### M4: Production Ready (End of Phase 4)
-- colcon integration working (Subphase 4.1)
+- colcon integration working (Subphase 4.1.x)
+  - config.toml management refactored (4.1.1) ✅
+  - Code generation bugs fixed (4.1.2)
+  - Workspace interface discovery working (4.1.3) ✅
+  - Transitive dependency discovery (4.1.4)
+  - Flat re-exports & associated constants (4.1.5) - **API ergonomics**
 - Multi-distro support verified (Subphase 4.2)
 - Public release 0.1.0 (Subphase 4.3)
 - Community adoption begins
@@ -49,6 +54,7 @@
 - [ ] Cold build <60s, hot build <5s
 - [ ] Works with Humble, Iron, Jazzy
 - [ ] Compatible with existing ros2_rust ecosystem
+- [ ] API conventions match C++/Python (flat re-exports, associated constants)
 
 ### Quality
 - [ ] Zero clippy warnings

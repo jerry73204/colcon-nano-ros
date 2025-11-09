@@ -866,6 +866,296 @@ cargo ros2 build
 
 ---
 
+### Subphase 4.1.5: Code Generation Ergonomics - Flat Re-exports & Associated Constants (1 week)
+
+**Status**: 📋 PLANNED - API ergonomics improvement to match C++/Python conventions
+
+**Goal**: Improve generated Rust API ergonomics by using flat re-exports for messages and associated constants, matching ROS 2 C++ and Python conventions.
+
+#### Current Behavior (Nested Modules)
+
+```rust
+// Generated structure:
+vision_msgs/src/msg/pose2_d.rs:
+  pub const SOME_CONSTANT: u8 = 42;
+  pub struct Pose2D { ... }
+
+vision_msgs/src/msg/mod.rs:
+  pub mod pose2_d {
+      pub use super::pose2_d::*;
+  }
+
+// User code (verbose):
+use vision_msgs::msg::pose2_d::{Pose2D, SOME_CONSTANT};
+let pose = pose2_d::Pose2D { ... };
+```
+
+**Problems**:
+- Extra nesting level (`pose2_d` module)
+- Doesn't match C++/Python conventions
+- Constants not namespaced under message type
+- More verbose imports
+
+#### Desired Behavior (Flat Re-exports with Associated Constants)
+
+**Messages**:
+```rust
+// Generated: vision_msgs/src/msg/pose2_d.rs (private module)
+pub struct Pose2D {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl Pose2D {
+    // Constants as associated constants (matches C++/Python)
+    pub const DEFAULT_TOLERANCE: f64 = 0.001;
+}
+
+// Module-level constants for convenience
+pub const DEFAULT_TOLERANCE: f64 = Pose2D::DEFAULT_TOLERANCE;
+
+// Generated: vision_msgs/src/msg/mod.rs
+mod pose2_d;
+pub use pose2_d::Pose2D;
+
+// User code (clean, matches C++/Python!):
+use vision_msgs::msg::Pose2D;
+let tol = Pose2D::DEFAULT_TOLERANCE;  // ✓ Clean namespacing
+```
+
+**Services/Actions** (keep nested for Request/Response):
+```rust
+// Generated: my_pkg/src/srv/add_two_ints.rs
+pub struct Request { ... }
+pub struct Response { ... }
+
+// Generated: my_pkg/src/srv/mod.rs
+pub mod AddTwoInts {
+    pub use super::add_two_ints::{Request, Response};
+
+    // Service-level constants
+    pub const MAX_SUM: i64 = Request::MAX_SUM;
+}
+
+// User code:
+use my_pkg::srv::AddTwoInts;
+let req = AddTwoInts::Request { a: 1, b: 2 };
+```
+
+#### Benefits
+
+✅ **Matches ecosystem conventions** - Aligns with C++ and Python ROS 2 APIs
+✅ **Cleaner imports** - `use sensor_msgs::msg::BatteryState;` instead of `use sensor_msgs::msg::battery_state::BatteryState;`
+✅ **Better constant namespacing** - `BatteryState::POWER_SUPPLY_STATUS_CHARGING` matches C++/Python
+✅ **Less cognitive overhead** - Fewer nested modules to remember
+✅ **More idiomatic Rust** - Associated constants are the Rust way
+
+#### Implementation Plan
+
+**Phase 1: Update message templates (Days 1-2)**
+
+- [ ] Modify `message_idiomatic.rs.jinja` template
+  - [ ] Generate constants as `impl` associated constants
+  - [ ] Keep module-level constants for backward compatibility
+  - [ ] Update documentation comments
+
+- [ ] Modify `message_rmw.rs.jinja` template (if constants needed)
+  - [ ] Review if RMW layer needs constants
+  - [ ] Apply same pattern if needed
+
+- [ ] Update `lib.rs.jinja` mod.rs generation
+  - [ ] Change from `pub mod message_name` to private `mod message_name`
+  - [ ] Add `pub use message_name::MessageName;` re-exports
+  - [ ] Handle constants re-export if needed
+
+**Phase 2: Update service/action templates (Days 3-4)**
+
+- [ ] Keep nested module structure for services
+  - [ ] Services need Request/Response grouping
+  - [ ] Module provides natural namespace
+  - [ ] Update documentation to explain rationale
+
+- [ ] Keep nested module structure for actions
+  - [ ] Actions need Goal/Result/Feedback grouping
+  - [ ] Module provides natural namespace
+  - [ ] Update documentation to explain rationale
+
+- [ ] Add associated constants for service/action constants
+  - [ ] Constants on Request/Response/Goal/Result/Feedback types
+  - [ ] Service/action module-level convenience re-exports
+
+**Phase 3: Update code generator logic (Day 5)**
+
+- [ ] Update `rosidl-codegen/src/generators/mod_rs.rs`
+  - [ ] Change module visibility to private for messages
+  - [ ] Generate flat re-exports for messages
+  - [ ] Keep nested modules for services/actions
+  - [ ] Add tests for new generation logic
+
+- [ ] Update any template context builders
+  - [ ] Ensure templates receive correct module structure info
+  - [ ] Add flags like `is_message`, `is_service`, `is_action`
+  - [ ] Pass constant information to templates
+
+**Phase 4: Testing (Days 6-7)**
+
+- [ ] Unit tests for template generation
+  - [ ] Test message with constants generates associated constants
+  - [ ] Test message without constants
+  - [ ] Test service Request/Response structure
+  - [ ] Test action Goal/Result/Feedback structure
+
+- [ ] Integration tests with real ROS packages
+  - [ ] Test `sensor_msgs/BatteryState` (has many constants)
+  - [ ] Test `std_msgs/Header` (no constants)
+  - [ ] Test `example_interfaces/AddTwoInts.srv`
+  - [ ] Test `action_tutorials_interfaces/Fibonacci.action`
+
+- [ ] Regenerate all testing workspace packages
+  - [ ] Verify complex_workspace still compiles
+  - [ ] Verify imports work correctly
+  - [ ] Update any example code to use new style
+
+**Phase 5: Documentation (Day 8)**
+
+- [ ] Update examples to use new import style
+  - [ ] Update `examples/simple_publisher/`
+  - [ ] Update `examples/simple_subscriber/`
+  - [ ] Add constant usage examples
+
+- [ ] Update documentation
+  - [ ] Document the flat re-export pattern in README
+  - [ ] Explain why services/actions stay nested
+  - [ ] Add migration guide for existing code
+  - [ ] Update architecture docs (DESIGN.md, ARCH.md)
+
+- [ ] Add comparison with C++/Python
+  - [ ] Side-by-side code examples
+  - [ ] Highlight API consistency
+  - [ ] Explain Rust-specific patterns (associated constants)
+
+#### Files to Modify
+
+**Templates** (~100 lines changed):
+- `rosidl-codegen/templates/message_idiomatic.rs.jinja` - Add impl block with associated constants
+- `rosidl-codegen/templates/lib.rs.jinja` or mod.rs generation - Change to flat re-exports for messages
+- `rosidl-codegen/templates/service_idiomatic.rs.jinja` - Keep nested, add associated constants
+- `rosidl-codegen/templates/action_idiomatic.rs.jinja` - Keep nested, add associated constants
+
+**Code generators** (~150 lines changed):
+- `rosidl-codegen/src/generators/mod_rs.rs` - Update module structure generation
+- `rosidl-codegen/src/context.rs` - Add fields for module structure decisions
+- `rosidl-codegen/src/lib.rs` - Update context building logic
+
+**Tests** (~200 lines added):
+- `rosidl-codegen/tests/flat_reexport_test.rs` - New test file
+- Update existing integration tests for new import paths
+
+**Documentation** (~100 lines changed):
+- `README.md` - Update examples
+- `docs/DESIGN.md` - Document new module structure
+- `CLAUDE.md` - Update project instructions
+- `examples/*/src/main.rs` - Update to new import style
+
+#### Acceptance Criteria
+
+**Functional**:
+```bash
+# Generate bindings for sensor_msgs
+cargo ros2 build
+
+# Test message with constants
+cd target/ros2_bindings/sensor_msgs
+cargo test
+
+# Verify user can import cleanly
+cat > test_imports.rs <<EOF
+use sensor_msgs::msg::BatteryState;
+
+fn main() {
+    let state = BatteryState::default();
+    let charging = BatteryState::POWER_SUPPLY_STATUS_CHARGING;
+    println!("Status: {}", charging);
+}
+EOF
+rustc test_imports.rs && ./test_imports
+# → Compiles and runs ✓
+```
+
+**API Consistency**:
+```rust
+// C++ style:
+sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_CHARGING
+
+// Python style:
+from sensor_msgs.msg import BatteryState
+BatteryState.POWER_SUPPLY_STATUS_CHARGING
+
+// Rust style (NEW):
+use sensor_msgs::msg::BatteryState;
+BatteryState::POWER_SUPPLY_STATUS_CHARGING
+
+// ✓ All three match in structure!
+```
+
+**Code Quality**:
+```bash
+just test
+# → All tests pass ✓
+# → Generated code compiles ✓
+
+just quality
+# → cargo fmt passes ✓
+# → cargo clippy passes ✓
+# → Zero warnings ✓
+```
+
+#### Success Metrics
+
+- [ ] Messages use flat re-exports (no nested modules)
+- [ ] Constants are associated constants on message types
+- [ ] Services/actions keep nested structure (Request/Response/etc.)
+- [ ] Import paths match C++/Python conventions
+- [ ] All existing tests pass with updated imports
+- [ ] Generated code is more readable and idiomatic
+- [ ] Documentation clearly explains the pattern
+
+#### Migration Guide for Users
+
+For projects using old nested module imports:
+
+```rust
+// OLD (nested module):
+use vision_msgs::msg::pose2_d::{Pose2D, CONSTANT};
+
+// NEW (flat re-export):
+use vision_msgs::msg::Pose2D;
+const x = Pose2D::CONSTANT;  // Or just use the associated constant directly
+```
+
+This is a **breaking change** but provides significantly better ergonomics and consistency with C++/Python.
+
+#### Alternatives Considered
+
+**Alternative 1**: Keep nested modules, add re-exports at msg level
+- ❌ Doesn't solve constant namespacing
+- ❌ Two ways to import (confusing)
+- ❌ Still doesn't match C++/Python
+
+**Alternative 2**: Flat re-exports without associated constants
+- ❌ Constants pollute msg namespace
+- ❌ No clear relationship between constant and message
+- ❌ Doesn't match C++/Python namespacing
+
+**Alternative 3**: Use enums instead of constants
+- ❌ ROS 2 IDL doesn't support enums in .msg files yet
+- ❌ Would break compatibility with C API
+- ❌ Future enhancement, but not now
+
+**Selected**: Flat re-exports + associated constants is the best balance of ergonomics, consistency, and Rust idioms.
+
+---
+
 ### Subphase 4.2: Multi-Distro Support (1 week)
 
 - [ ] ROS distro detection
