@@ -408,6 +408,9 @@ fn generate_lib_rs(
     lib_rs.push_str("// Auto-generated Rust bindings for ROS 2 interface package\n");
     lib_rs.push_str(&format!("// Package: {}\n\n", package.name));
 
+    // Suppress common warnings in generated code
+    lib_rs.push_str("#![allow(unused_imports)]\n\n");
+
     // Import the shared rosidl_runtime_rs crate
     lib_rs.push_str("// Import shared runtime library for ROS 2 types and traits\n");
     lib_rs.push_str("use rosidl_runtime_rs;\n\n");
@@ -463,15 +466,17 @@ fn generate_lib_rs(
         lib_rs.push_str("}\n\n");
     }
 
-    // Add idiomatic message modules
+    // Add idiomatic message modules with flat re-exports
     if !package.interfaces.messages.is_empty() {
         lib_rs.push_str("pub mod msg {\n");
         lib_rs.push_str("    use super::rosidl_runtime_rs;\n\n");
         for msg_name in &package.interfaces.messages {
             let module_name = to_snake_case(msg_name);
             // Files are in src/msg/, inline module context is also msg/
+            // Use private module with public re-export for flat structure
             lib_rs.push_str(&format!("    #[path = \"{}_idiomatic.rs\"]\n", module_name));
-            lib_rs.push_str(&format!("    pub mod {};\n", module_name));
+            lib_rs.push_str(&format!("    mod {};\n", module_name));
+            lib_rs.push_str(&format!("    pub use {}::{};\n", module_name, msg_name));
         }
         lib_rs.push_str("}\n\n");
     }

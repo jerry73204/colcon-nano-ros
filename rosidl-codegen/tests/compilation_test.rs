@@ -131,26 +131,8 @@ fn cargo_available() -> bool {
     Command::new("cargo").arg("--version").output().is_ok()
 }
 
-/// Convert UpperCamelCase to snake_case for module names
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    let mut prev_is_uppercase = false;
-
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i > 0 && !prev_is_uppercase {
-                result.push('_');
-            }
-            result.push(ch.to_lowercase().next().unwrap());
-            prev_is_uppercase = true;
-        } else {
-            result.push(ch);
-            prev_is_uppercase = false;
-        }
-    }
-
-    result
-}
+// Use the canonical to_snake_case from utils
+use rosidl_codegen::utils::to_snake_case;
 
 #[test]
 fn test_simple_message_compiles() -> Result<(), GeneratorError> {

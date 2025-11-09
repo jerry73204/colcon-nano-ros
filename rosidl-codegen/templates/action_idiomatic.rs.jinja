@@ -10,10 +10,6 @@ pub mod goal {
     #[cfg(feature = "serde")]
     use super::{Deserialize, Serialize};
 
-    {% for constant in goal_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
-    {% endfor %}
-
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct {{ action_name }}Goal {
@@ -23,10 +19,24 @@ pub mod goal {
     }
 
     impl {{ action_name }}Goal {
+        {% if !goal_constants.is_empty() %}
+        // Goal constants (matches C++/Python conventions)
+        {% for constant in goal_constants %}
+        pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+        {% endfor %}
+
+        {% endif %}
         pub fn new() -> Self {
             Self::default()
         }
     }
+
+    {% if !goal_constants.is_empty() %}
+    // Module-level constants for backward compatibility
+    {% for constant in goal_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ action_name }}Goal::{{ constant.name }};
+    {% endfor %}
+    {% endif %}
 
     impl Default for {{ action_name }}Goal {
         fn default() -> Self {
@@ -78,10 +88,6 @@ pub mod result {
     #[cfg(feature = "serde")]
     use super::{Deserialize, Serialize};
 
-    {% for constant in result_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
-    {% endfor %}
-
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct {{ action_name }}Result {
@@ -91,10 +97,24 @@ pub mod result {
     }
 
     impl {{ action_name }}Result {
+        {% if !result_constants.is_empty() %}
+        // Result constants (matches C++/Python conventions)
+        {% for constant in result_constants %}
+        pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+        {% endfor %}
+
+        {% endif %}
         pub fn new() -> Self {
             Self::default()
         }
     }
+
+    {% if !result_constants.is_empty() %}
+    // Module-level constants for backward compatibility
+    {% for constant in result_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ action_name }}Result::{{ constant.name }};
+    {% endfor %}
+    {% endif %}
 
     impl Default for {{ action_name }}Result {
         fn default() -> Self {
@@ -146,10 +166,6 @@ pub mod feedback {
     #[cfg(feature = "serde")]
     use super::{Deserialize, Serialize};
 
-    {% for constant in feedback_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
-    {% endfor %}
-
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct {{ action_name }}Feedback {
@@ -159,10 +175,24 @@ pub mod feedback {
     }
 
     impl {{ action_name }}Feedback {
+        {% if !feedback_constants.is_empty() %}
+        // Feedback constants (matches C++/Python conventions)
+        {% for constant in feedback_constants %}
+        pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+        {% endfor %}
+
+        {% endif %}
         pub fn new() -> Self {
             Self::default()
         }
     }
+
+    {% if !feedback_constants.is_empty() %}
+    // Module-level constants for backward compatibility
+    {% for constant in feedback_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ action_name }}Feedback::{{ constant.name }};
+    {% endfor %}
+    {% endif %}
 
     impl Default for {{ action_name }}Feedback {
         fn default() -> Self {

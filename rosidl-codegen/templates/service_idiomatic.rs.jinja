@@ -10,10 +10,6 @@ pub mod request {
     #[cfg(feature = "serde")]
     use super::{Deserialize, Serialize};
 
-    {% for constant in request_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
-    {% endfor %}
-
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct {{ service_name }}Request {
@@ -23,10 +19,24 @@ pub mod request {
     }
 
     impl {{ service_name }}Request {
+        {% if !request_constants.is_empty() %}
+        // Request constants (matches C++/Python conventions)
+        {% for constant in request_constants %}
+        pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+        {% endfor %}
+
+        {% endif %}
         pub fn new() -> Self {
             Self::default()
         }
     }
+
+    {% if !request_constants.is_empty() %}
+    // Module-level constants for backward compatibility
+    {% for constant in request_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ service_name }}Request::{{ constant.name }};
+    {% endfor %}
+    {% endif %}
 
     impl Default for {{ service_name }}Request {
         fn default() -> Self {
@@ -78,10 +88,6 @@ pub mod response {
     #[cfg(feature = "serde")]
     use super::{Deserialize, Serialize};
 
-    {% for constant in response_constants %}
-    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
-    {% endfor %}
-
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
     pub struct {{ service_name }}Response {
@@ -91,10 +97,24 @@ pub mod response {
     }
 
     impl {{ service_name }}Response {
+        {% if !response_constants.is_empty() %}
+        // Response constants (matches C++/Python conventions)
+        {% for constant in response_constants %}
+        pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+        {% endfor %}
+
+        {% endif %}
         pub fn new() -> Self {
             Self::default()
         }
     }
+
+    {% if !response_constants.is_empty() %}
+    // Module-level constants for backward compatibility
+    {% for constant in response_constants %}
+    pub const {{ constant.name }}: {{ constant.rust_type }} = {{ service_name }}Response::{{ constant.name }};
+    {% endfor %}
+    {% endif %}
 
     impl Default for {{ service_name }}Response {
         fn default() -> Self {

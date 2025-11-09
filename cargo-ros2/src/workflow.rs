@@ -439,7 +439,7 @@ impl WorkflowContext {
 
             // Discover transitive dependencies from generated packages
             let mut new_deps = Vec::new();
-            for (pkg_name, pkg_path) in &generated_packages {
+            for (_pkg_name, pkg_path) in &generated_packages {
                 if let Ok(transitive_deps) = self.discover_transitive_dependencies(pkg_path) {
                     for dep in transitive_deps {
                         // Only add if we haven't seen it yet and it's a known ROS package

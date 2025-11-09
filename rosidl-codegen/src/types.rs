@@ -149,24 +149,30 @@ pub fn rust_type_for_field(
                 if is_self_ref {
                     // Self-reference: use crate:: instead of pkg::
                     if rmw_layer {
+                        // RMW layer still uses nested modules
                         format!("crate::ffi::msg::{}::{}", to_snake_case(name), name)
                     } else {
-                        format!("crate::msg::{}::{}", to_snake_case(name), name)
+                        // Idiomatic layer uses flat re-exports
+                        format!("crate::msg::{}", name)
                     }
                 } else {
                     // Cross-package reference
                     if rmw_layer {
+                        // RMW layer still uses nested modules
                         format!("{}::ffi::msg::{}::{}", pkg, to_snake_case(name), name)
                     } else {
-                        format!("{}::msg::{}::{}", pkg, to_snake_case(name), name)
+                        // Idiomatic layer uses flat re-exports
+                        format!("{}::msg::{}", pkg, name)
                     }
                 }
             } else {
                 // Local same-package type reference (no package specified)
                 if rmw_layer {
+                    // RMW layer still uses nested modules
                     format!("crate::ffi::msg::{}::{}", to_snake_case(name), name)
                 } else {
-                    format!("crate::msg::{}::{}", to_snake_case(name), name)
+                    // Idiomatic layer uses flat re-exports
+                    format!("crate::msg::{}", name)
                 }
             }
         }
@@ -186,26 +192,8 @@ pub fn to_upper_camel_case(s: &str) -> String {
         .collect()
 }
 
-/// Convert UpperCamelCase to snake_case
-pub fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    let mut prev_is_uppercase = false;
-
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i > 0 && !prev_is_uppercase {
-                result.push('_');
-            }
-            result.push(ch.to_lowercase().next().unwrap());
-            prev_is_uppercase = true;
-        } else {
-            result.push(ch);
-            prev_is_uppercase = false;
-        }
-    }
-
-    result
-}
+// Re-export to_snake_case from utils to ensure consistent behavior
+pub use crate::utils::to_snake_case;
 
 #[cfg(test)]
 mod tests {
@@ -280,7 +268,11 @@ mod tests {
         assert_eq!(to_upper_camel_case("test_message"), "TestMessage");
         assert_eq!(to_upper_camel_case("foo_bar_baz"), "FooBarBaz");
 
+        // to_snake_case is now imported from utils, test basic cases
         assert_eq!(to_snake_case("TestMessage"), "test_message");
         assert_eq!(to_snake_case("FooBarBaz"), "foo_bar_baz");
+        // Test digit handling (important for ROS message names)
+        assert_eq!(to_snake_case("Pose2D"), "pose2d");
+        assert_eq!(to_snake_case("BoundingBox2D"), "bounding_box2d");
     }
 }

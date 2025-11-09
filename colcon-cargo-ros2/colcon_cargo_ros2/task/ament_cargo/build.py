@@ -72,9 +72,7 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         """Generate workspace-level ROS 2 bindings (done once for entire workspace)."""
         # Check for cargo-ros2 binary
         try:
-            result = subprocess.run(
-                ["cargo", "ros2", "--help"], capture_output=True, check=True
-            )
+            subprocess.run(["cargo", "ros2", "--help"], capture_output=True, check=True)
             logger.debug("cargo-ros2 found")
         except (subprocess.CalledProcessError, FileNotFoundError):
             logger.error(
