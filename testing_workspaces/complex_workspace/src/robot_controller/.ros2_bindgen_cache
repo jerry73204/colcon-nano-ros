@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "entries": {
+    "sensor_msgs": {
+      "package_name": "sensor_msgs",
+      "checksum": "87cf29314d5429ab468097bfc1f58dd668d7018bbfd33f7c89229a6207d834d2",
+      "ros_distro": "jazzy",
+      "package_version": null,
+      "timestamp": 1762582983,
+      "output_dir": "/home/aeon/repos/cargo-ros2/testing_workspaces/complex_workspace/src/robot_controller/target/ros2_bindings/sensor_msgs"
+    },
+    "robot_interfaces": {
+      "package_name": "robot_interfaces",
+      "checksum": "b82499daff778831ddd01e4bbc056ac96eb07a219097458d78b28f3faaf15356",
+      "ros_distro": "jazzy",
+      "package_version": null,
+      "timestamp": 1762510389,
+      "output_dir": "/home/aeon/repos/cargo-ros2/testing_workspaces/complex_workspace/src/robot_controller/target/ros2_bindings/robot_interfaces"
+    },
+    "builtin_interfaces": {
+      "package_name": "builtin_interfaces",
+      "checksum": "52abe03c4ff282b3c39e42b74e20bd2737b3cb480f0ba46e4ea40a0ab8a2b98d",
+      "ros_distro": "jazzy",
+      "package_version": null,
+      "timestamp": 1762582983,
+      "output_dir": "/home/aeon/repos/cargo-ros2/testing_workspaces/complex_workspace/src/robot_controller/target/ros2_bindings/builtin_interfaces"
+    },
+    "std_msgs": {
+      "package_name": "std_msgs",
+      "checksum": "0757cf6f1af2c41ef0c5049f12abf88a136235695f65b8c2178d57df838ec9c1",
+      "ros_distro": "jazzy",
+      "package_version": null,
+      "timestamp": 1762582983,
+      "output_dir": "/home/aeon/repos/cargo-ros2/testing_workspaces/complex_workspace/src/robot_controller/target/ros2_bindings/std_msgs"
+    },
+    "geometry_msgs": {
+      "package_name": "geometry_msgs",
+      "checksum": "30333ded13fc573bdbfc7dba00bf1325ad0380df08ba8129318c159bfcf24be7",
+      "ros_distro": "jazzy",
+      "package_version": null,
+      "timestamp": 1762582983,
+      "output_dir": "/home/aeon/repos/cargo-ros2/testing_workspaces/complex_workspace/src/robot_controller/target/ros2_bindings/geometry_msgs"
+    }
+  }
+}
