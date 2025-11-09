@@ -13,12 +13,14 @@ Architecture:
 4. Individual packages then just run `cargo build`
 """
 
-import subprocess
 from pathlib import Path
 from typing import Dict, List
 import xml.etree.ElementTree as ET
 
 from colcon_core.logging import colcon_logger
+
+# Import Rust library directly via PyO3 bindings
+import cargo_ros2_py
 
 logger = colcon_logger.getChild(__name__)
 
@@ -198,7 +200,7 @@ class WorkspaceBindingGenerator:
     def _run_bindgen(
         self, pkg_name: str, pkg_share: Path, output_dir: Path, verbose: bool
     ):
-        """Run cargo ros2 bindgen to generate bindings for a single package.
+        """Generate Rust bindings for a single package using direct API call.
 
         Args:
             pkg_name: Name of the ROS package
@@ -206,30 +208,23 @@ class WorkspaceBindingGenerator:
             output_dir: Path where bindings should be generated
             verbose: Enable verbose output
         """
-        cmd = [
-            "cargo",
-            "ros2",
-            "bindgen",
-            "--package",
-            pkg_name,
-            "--package-path",
-            str(pkg_share),
-            "--output",
-            str(output_dir),
-        ]
-
-        if verbose:
-            cmd.append("--verbose")
-
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            # Create configuration for binding generation
+            config = cargo_ros2_py.BindgenConfig(
+                package_name=pkg_name,
+                output_dir=str(output_dir),
+                package_path=str(pkg_share),
+                verbose=verbose,
+            )
+
+            # Call Rust function directly (no subprocess!)
+            cargo_ros2_py.generate_bindings(config)
+
             if verbose:
-                logger.info(f"Bindgen output: {result.stdout}")
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to generate bindings for {pkg_name}:")
-            logger.error(f"  Command: {' '.join(cmd)}")
-            logger.error(f"  stdout: {e.stdout}")
-            logger.error(f"  stderr: {e.stderr}")
+                logger.info(f"✓ Generated bindings for {pkg_name}")
+
+        except RuntimeError as e:
+            logger.error(f"Failed to generate bindings for {pkg_name}: {e}")
             raise
 
     def _fixup_cargo_toml(self, pkg_name: str, binding_dir: Path):

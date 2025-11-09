@@ -2,7 +2,6 @@
 
 from pathlib import Path
 import os
-import subprocess
 
 from colcon_core.logging import colcon_logger
 from colcon_core.plugin_system import satisfies_version
@@ -11,6 +10,8 @@ from colcon_core.task import TaskExtensionPoint, run
 
 from colcon_cargo_ros2.workspace_bindgen import generate_workspace_bindings
 
+# Import Rust library directly via PyO3 bindings
+import cargo_ros2_py
 
 logger = colcon_logger.getChild(__name__)
 
@@ -70,15 +71,16 @@ class AmentCargoBuildTask(TaskExtensionPoint):
 
     async def _prepare_workspace_bindings(self):
         """Generate workspace-level ROS 2 bindings (done once for entire workspace)."""
-        # Check for cargo-ros2 binary
+        # Check that cargo_ros2_py module is available
         try:
-            subprocess.run(["cargo", "ros2", "--help"], capture_output=True, check=True)
-            logger.debug("cargo-ros2 found")
-        except (subprocess.CalledProcessError, FileNotFoundError):
+            # Quick check that the module loaded correctly
+            _ = cargo_ros2_py.__version__
+            logger.debug(f"cargo-ros2-py {cargo_ros2_py.__version__} loaded")
+        except (ImportError, AttributeError) as e:
             logger.error(
-                "\n\ncargo-ros2 not found!"
-                "\n\nPlease ensure cargo-ros2 is installed:"
-                "\n $ cargo install --path cargo-ros2\n"
+                f"\n\ncargo-ros2-py Python bindings not found: {e}"
+                "\n\nPlease ensure cargo-ros2-py is installed:"
+                "\n  $ pip install cargo-ros2-py\n"
             )
             return 1
 
@@ -137,43 +139,29 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         return cmd
 
     def _install_package(self):
-        """Install package binaries and create ament markers.
-
-        Calls 'cargo ros2 install' to handle installation to ament layout.
-        """
+        """Install package binaries and create ament markers using direct API call."""
         args = self.context.args
 
         # Determine build profile
         profile = "release" if hasattr(args, "release") and args.release else "debug"
+        verbose = getattr(args, "verbose", False)
 
-        # Build cargo ros2 install command
-        cmd = [
-            "cargo",
-            "ros2",
-            "install",
-            "--install-base",
-            args.install_base,
-            "--profile",
-            profile,
-        ]
-
-        # Execute installation
+        # Execute installation via direct API call
         try:
-            result = subprocess.run(
-                cmd, cwd=self.context.pkg.path, check=False, capture_output=True
+            # Create configuration for installation
+            config = cargo_ros2_py.InstallConfig(
+                project_root=str(self.context.pkg.path),
+                install_base=str(args.install_base),
+                profile=profile,
+                verbose=verbose,
             )
 
-            if result.returncode != 0:
-                logger.error(f"cargo ros2 install failed: {result.stderr.decode()}")
-                return result.returncode
+            # Call Rust function directly (no subprocess!)
+            cargo_ros2_py.install_to_ament(config)
 
-            logger.info("Package installed successfully")
+            logger.info("✓ Package installed successfully")
             return 0
 
-        except FileNotFoundError:
-            logger.error(
-                "\n\ncargo-ros2 not found!"
-                "\n\nPlease ensure cargo-ros2 is installed:"
-                "\n  $ cargo install --path cargo-ros2\n"
-            )
+        except RuntimeError as e:
+            logger.error(f"Installation failed: {e}")
             return 1
