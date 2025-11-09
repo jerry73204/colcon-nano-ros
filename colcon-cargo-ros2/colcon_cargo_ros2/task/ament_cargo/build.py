@@ -11,7 +11,7 @@ from colcon_core.task import TaskExtensionPoint, run
 from colcon_cargo_ros2.workspace_bindgen import generate_workspace_bindings
 
 # Import Rust library directly via PyO3 bindings
-import cargo_ros2_py
+from colcon_cargo_ros2 import cargo_ros2_py
 
 logger = colcon_logger.getChild(__name__)
 
@@ -75,12 +75,12 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         try:
             # Quick check that the module loaded correctly
             _ = cargo_ros2_py.__version__
-            logger.debug(f"cargo-ros2-py {cargo_ros2_py.__version__} loaded")
+            logger.debug(f"cargo_ros2_py {cargo_ros2_py.__version__} loaded")
         except (ImportError, AttributeError) as e:
             logger.error(
-                f"\n\ncargo-ros2-py Python bindings not found: {e}"
-                "\n\nPlease ensure cargo-ros2-py is installed:"
-                "\n  $ pip install cargo-ros2-py\n"
+                f"\n\ncargo_ros2_py Rust bindings not found: {e}"
+                "\n\nPlease ensure colcon-cargo-ros2 is installed correctly:"
+                "\n  $ pip install colcon-cargo-ros2\n"
             )
             return 1
 
@@ -149,8 +149,11 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         # Execute installation via direct API call
         try:
             # Create configuration for installation
+            # Ensure project_root is an absolute path
+            project_root = Path(self.context.pkg.path).resolve()
+
             config = cargo_ros2_py.InstallConfig(
-                project_root=str(self.context.pkg.path),
+                project_root=str(project_root),
                 install_base=str(args.install_base),
                 profile=profile,
                 verbose=verbose,

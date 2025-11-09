@@ -1,0 +1,48 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "colcon-cargo-ros2"
+version = "0.2.0"
+description = "Extension for colcon to support Rust ROS 2 packages using cargo-ros2"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Nikolai Morin", email = "nnmmgit@gmail.com" }
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Plugins",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX",
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+    "colcon-core",
+    "colcon-library-path",
+    "colcon-ros",
+]
+
+[project.urls]
+Homepage = "https://colcon.readthedocs.io"
+Repository = "https://github.com/colcon/colcon-cargo-ros2"
+Changelog = "https://github.com/colcon/colcon-cargo-ros2/milestones?state=closed"
+
+[project.entry-points."colcon_core.task.build"]
+"ros.cargo_ros2" = "colcon_cargo_ros2.task.ament_cargo.build:AmentCargoBuildTask"
+
+[project.entry-points."colcon_core.task.test"]
+"ros.cargo_ros2" = "colcon_cargo_ros2.task.ament_cargo.test:AmentCargoTestTask"
+
+[tool.maturin]
+bindings = "pyo3"
+manifest-path = "Cargo.toml"
+module-name = "colcon_cargo_ros2.cargo_ros2_py"
+python-source = "."
+strip = true

@@ -58,14 +58,15 @@ format: format-rust format-python
 # Lint and check everything (Rust + Python)
 check: check-rust check-python
 
-# Install Rust binary and Python package
+# Install colcon-cargo-ros2 wheel (includes bundled cargo-ros2-py)
 install:
-    cargo install --path cargo-ros2
-    pip3 install -e colcon-cargo-ros2/ --break-system-packages
+    cd colcon-cargo-ros2 && maturin build --release
+    pip3 install --force-reinstall colcon-cargo-ros2/target/wheels/colcon_cargo_ros2-*.whl --break-system-packages
 
 # Clean all build artifacts
 clean:
     cargo clean
+    rm -rf colcon-cargo-ros2/target/
     rm -rf colcon-cargo-ros2/dist/ colcon-cargo-ros2/build/ colcon-cargo-ros2/*.egg-info
 
 # === QUALITY COMMANDS ===

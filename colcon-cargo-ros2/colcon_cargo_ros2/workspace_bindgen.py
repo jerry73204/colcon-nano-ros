@@ -20,7 +20,7 @@ import xml.etree.ElementTree as ET
 from colcon_core.logging import colcon_logger
 
 # Import Rust library directly via PyO3 bindings
-import cargo_ros2_py
+from colcon_cargo_ros2 import cargo_ros2_py
 
 logger = colcon_logger.getChild(__name__)
 
@@ -244,7 +244,10 @@ class WorkspaceBindingGenerator:
             # Try top-level
             cargo_toml = binding_dir / "Cargo.toml"
             if not cargo_toml.exists():
-                logger.warning(f"No Cargo.toml found for {pkg_name}")
+                # This is expected for packages without interfaces (msg/srv/action)
+                logger.debug(
+                    f"No Cargo.toml found for {pkg_name} (package has no interfaces)"
+                )
                 return
 
         # Read the Cargo.toml

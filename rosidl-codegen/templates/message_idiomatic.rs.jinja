@@ -41,6 +41,7 @@ impl crate::rosidl_runtime_rs::SequenceElement for {{ message_name }} {
 
 // Reference-based conversions (used for sequence element conversions)
 impl From<&{{ message_name }}> for crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }} {
+    #[allow(unused_variables)]
     fn from(idiomatic: &{{ message_name }}) -> Self {
         Self {
             {% for field in fields %}
@@ -66,6 +67,7 @@ impl From<&{{ message_name }}> for crate::ffi::msg::{{ message_name|snake_case }
 }
 
 impl From<&crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }}> for {{ message_name }} {
+    #[allow(unused_variables)]
     fn from(rmw: &crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }}) -> Self {
         Self {
             {% for field in fields %}

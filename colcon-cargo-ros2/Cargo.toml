@@ -1,0 +1,19 @@
+[package]
+name = "colcon-cargo-ros2"
+version = "0.2.0"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["Nikolai Morin <nnmmgit@gmail.com>"]
+description = "Extension for colcon to support Rust ROS 2 packages using cargo-ros2"
+
+[lib]
+name = "cargo_ros2_py"
+crate-type = ["cdylib"]
+
+# This is a standalone maturin project, not part of the parent workspace
+[workspace]
+
+[dependencies]
+# PyO3 bindings to expose cargo-ros2 functionality to Python
+pyo3 = { version = "0.22", features = ["extension-module"] }
+cargo-ros2 = { path = "../cargo-ros2" }

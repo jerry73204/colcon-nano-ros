@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "cargo-ros2",
-    "cargo-ros2-py",
     "rosidl-bindgen",
     "rosidl-parser",
     "rosidl-codegen",
