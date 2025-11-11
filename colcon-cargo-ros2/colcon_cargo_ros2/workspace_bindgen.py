@@ -310,7 +310,18 @@ class WorkspaceBindingGenerator:
                         f'{pkg_name} = {{ path = "{binding_dir.absolute()}" }}'
                     )
 
-        # Write config.toml (NOTE: No rosidl_runtime_rs patch - using 0.5.0 from crates.io)
+        # Add patches for embedded runtime libraries
+        runtime_rs_dir = self.bindings_dir / "rosidl_runtime_rs"
+        if runtime_rs_dir.exists() and (runtime_rs_dir / "Cargo.toml").exists():
+            patches.append(
+                f'rosidl_runtime_rs = {{ path = "{runtime_rs_dir.absolute()}" }}'
+            )
+
+        rclrs_dir = self.bindings_dir / "rclrs"
+        if rclrs_dir.exists() and (rclrs_dir / "Cargo.toml").exists():
+            patches.append(f'rclrs = {{ path = "{rclrs_dir.absolute()}" }}')
+
+        # Write config.toml
         content = "[patch.crates-io]\n"
         content += "\n".join(patches)
         content += "\n"
