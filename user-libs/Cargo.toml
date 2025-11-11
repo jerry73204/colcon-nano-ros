@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "rosidl-runtime-rs",
+    "rclrs",
+]
+
+[workspace.package]
+version = "0.1.0"
+authors = []
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/azewiusz/colcon-cargo-ros2"
+
+[profile.dev-release]
+inherits = "release"
+debug = true
+strip = false

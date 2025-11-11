@@ -8,10 +8,11 @@ use include_dir::{include_dir, Dir};
 use std::path::Path;
 
 /// Embedded rosidl-runtime-rs source directory
-static ROSIDL_RUNTIME_RS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../rosidl-runtime-rs");
+static ROSIDL_RUNTIME_RS: Dir =
+    include_dir!("$CARGO_MANIFEST_DIR/../../user-libs/rosidl-runtime-rs");
 
 /// Embedded rclrs source directory
-static RCLRS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../rclrs");
+static RCLRS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../../user-libs/rclrs");
 
 /// Extract the embedded rosidl-runtime-rs source to the specified output directory
 pub fn extract_embedded_runtime_rs(output_dir: &Path) -> Result<()> {

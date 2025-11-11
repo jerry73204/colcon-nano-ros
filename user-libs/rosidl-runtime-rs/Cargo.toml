@@ -12,5 +12,10 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = []
+# Enable serde support for serialization/deserialization
+serde = ["dep:serde"]
+# Enable ROS shim for building docs without ROS installation
+# This is used by docs.rs and should not be used by end users
+use_ros_shim = []
 
 [dev-dependencies]

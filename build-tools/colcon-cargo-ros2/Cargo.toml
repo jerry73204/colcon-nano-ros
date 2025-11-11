@@ -10,9 +10,6 @@ description = "Extension for colcon to support Rust ROS 2 packages using cargo-r
 name = "cargo_ros2_py"
 crate-type = ["cdylib"]
 
-# This is a standalone maturin project, not part of the parent workspace
-[workspace]
-
 [dependencies]
 # PyO3 bindings to expose cargo-ros2 functionality to Python
 pyo3 = { version = "0.22", features = ["extension-module"] }

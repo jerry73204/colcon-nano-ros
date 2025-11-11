@@ -1,23 +1,19 @@
 [workspace]
 resolver = "2"
 members = [
-    "cargo-ros2",
-    "rosidl-bindgen",
     "rosidl-parser",
     "rosidl-codegen",
-    "rosidl-runtime-rs",
-    "rclrs",
-]
-exclude = [
-    "colcon-cargo-ros2/test/rust-sample-package",
+    "rosidl-bindgen",
+    "cargo-ros2",
+    "colcon-cargo-ros2",
 ]
 
 [workspace.package]
 version = "0.1.0"
+authors = []
 edition = "2021"
 license = "MIT OR Apache-2.0"
-authors = ["cargo-ros2 contributors"]
-repository = "https://github.com/rosrust/colcon-cargo-ros2"
+repository = "https://github.com/azewiusz/colcon-cargo-ros2"
 
 [workspace.dependencies]
 # Shared dependencies across workspace members
@@ -36,8 +32,6 @@ cargo-ros2 = { path = "cargo-ros2" }
 rosidl-bindgen = { path = "rosidl-bindgen" }
 rosidl-parser = { path = "rosidl-parser" }
 rosidl-codegen = { path = "rosidl-codegen" }
-rosidl-runtime-rs = { path = "rosidl-runtime-rs" }
-rclrs = { path = "rclrs" }
 
 [profile.dev-release]
 inherits = "release"

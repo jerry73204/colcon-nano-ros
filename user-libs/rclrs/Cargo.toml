@@ -36,7 +36,7 @@ async-std = "1.13"
 libloading = { version = "0.8", optional = true }
 
 # Needed for the Message trait, among others
-rosidl_runtime_rs = "0.5"
+rosidl-runtime-rs = { path = "../rosidl-runtime-rs" }
 
 # Needed for serliazation and deserialization of vendored messages
 serde = { version = "1", optional = true, features = ["derive"] }
@@ -68,10 +68,10 @@ rustflags = "0.1"
 [features]
 default = []
 dyn_msg = ["ament_rs", "libloading"]
-serde = ["dep:serde", "dep:serde-big-array", "rosidl_runtime_rs/serde"]
+serde = ["dep:serde", "dep:serde-big-array", "rosidl-runtime-rs/serde"]
 # This feature is solely for the purpose of being able to generate documetation without a ROS installation
 # The only intended usage of this feature is for docs.rs builders to work, and is not intended to be used by end users
-use_ros_shim = ["rosidl_runtime_rs/use_ros_shim"]
+use_ros_shim = ["rosidl-runtime-rs/use_ros_shim"]
 
 [package.metadata.docs.rs]
 features = ["use_ros_shim"]

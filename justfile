@@ -4,70 +4,118 @@
 default:
     @just --list
 
-# === RUST COMMANDS ===
+# === BUILD-TOOLS WORKSPACE ===
 
-# Build all Rust crates
-build-rust:
-    cargo build --workspace --profile dev-release --all-targets
+# Build build-tools workspace
+build-build-tools:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools
+    cargo build \
+        --profile dev-release \
+        --all-targets
 
-# Test all Rust crates
-test-rust:
-    cargo test --workspace
+# Test build-tools workspace
+test-build-tools:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools
+    cargo nextest run \
+        --cargo-profile dev-release \
+        --no-fail-fast
 
-# Lint Rust code
-check-rust:
-    cargo clippy --workspace --all-targets -- -D warnings
+# Clean build-tools workspace
+clean-build-tools:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools
+    cargo clean
+    rm -rf colcon-cargo-ros2/dist/ colcon-cargo-ros2/build/ colcon-cargo-ros2/*.egg-info
 
-# Format Rust code
-format-rust:
-    cargo +nightly fmt
+# === USER-LIBS WORKSPACE (requires ROS environment) ===
+
+# Build user-libs workspace
+build-user-libs:
+    #!/usr/bin/env bash
+    set -e
+    cd user-libs
+    cargo build \
+        --profile dev-release \
+        --all-targets
+
+# Test user-libs workspace
+test-user-libs:
+    #!/usr/bin/env bash
+    set -e
+    cd user-libs
+    cargo nextest run --no-fail-fast --cargo-profile dev-release
+
+# Clean user-libs workspace
+clean-user-libs:
+    #!/usr/bin/env bash
+    set -e
+    cd user-libs
+    cargo clean
 
 # === PYTHON COMMANDS ===
 
-# Build Python package
+# Build Python package (wheel)
 build-python:
-    cd colcon-cargo-ros2 && python3 -m build
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools/colcon-cargo-ros2
+    maturin build --profile dev-release
 
 # Install Python package in development mode
 install-python:
-    pip3 install -e colcon-cargo-ros2/ --break-system-packages
+    pip3 install -e build-tools/colcon-cargo-ros2/ --break-system-packages
 
 # Test Python code
 test-python:
-    pytest colcon-cargo-ros2/test/
+    pytest build-tools/colcon-cargo-ros2/test/
 
 # Format Python code
 format-python:
-    ruff format colcon-cargo-ros2/colcon_cargo_ros2/ colcon-cargo-ros2/test/
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools/colcon-cargo-ros2
+    ruff check colcon_cargo_ros2/ test/
 
 # Lint Python code
 check-python:
-    ruff check colcon-cargo-ros2/colcon_cargo_ros2/ colcon-cargo-ros2/test/
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools/colcon-cargo-ros2
+    ruff check colcon_cargo_ros2/ test/
 
 # === COMBINED COMMANDS ===
 
-# Build everything (Rust only - Python doesn't need building for development)
-build: build-rust
+# Build both workspaces (note: user-libs requires ROS environment)
+build: build-build-tools build-user-libs
 
-# Test everything (Rust + Python)
-test: test-rust test-python
+# Test both workspaces + Python
+test: test-build-tools test-user-libs test-python
 
-# Format everything (Rust + Python)
-format: format-rust format-python
+# Clean both workspaces
+clean: clean-build-tools clean-user-libs
 
-# Lint and check everything (Rust + Python)
-check: check-rust check-python
+# Format all code (both workspaces + Python)
+format:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools && cargo +nightly fmt
+    cd ../user-libs && cargo +nightly fmt
+    cd ..
+    just format-python
 
-# Install colcon-cargo-ros2 wheel (includes bundled cargo-ros2-py)
-install:
-    cd colcon-cargo-ros2 && maturin build --release
-    pip3 install --force-reinstall colcon-cargo-ros2/target/wheels/colcon_cargo_ros2-*.whl --break-system-packages
-
-# Clean all build artifacts
-clean:
-    cargo clean
-    rm -rf colcon-cargo-ros2/target/
-    rm -rf colcon-cargo-ros2/dist/ colcon-cargo-ros2/build/ colcon-cargo-ros2/*.egg-info
+# Lint and check all code (both workspaces + Python)
+check:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools && cargo clippy --workspace --all-targets -- -D warnings
+    cd ../user-libs && cargo clippy --workspace --all-targets -- -D warnings
+    cd ..
+    just check-python
 
 # === QUALITY COMMANDS ===
 
