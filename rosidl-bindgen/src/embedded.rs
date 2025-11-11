@@ -1,7 +1,7 @@
-//! Embedded rosidl-runtime-rs source code.
+//! Embedded rosidl-runtime-rs and rclrs source code.
 //!
-//! This module embeds the entire rosidl-runtime-rs directory at compile time
-//! and provides functions to extract it to disk during binding generation.
+//! This module embeds the entire rosidl-runtime-rs and rclrs directories at compile time
+//! and provides functions to extract them to disk during binding generation.
 
 use eyre::{Result, WrapErr};
 use include_dir::{include_dir, Dir};
@@ -9,6 +9,9 @@ use std::path::Path;
 
 /// Embedded rosidl-runtime-rs source directory
 static ROSIDL_RUNTIME_RS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../rosidl-runtime-rs");
+
+/// Embedded rclrs source directory
+static RCLRS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../rclrs");
 
 /// Extract the embedded rosidl-runtime-rs source to the specified output directory
 pub fn extract_embedded_runtime_rs(output_dir: &Path) -> Result<()> {
@@ -101,6 +104,63 @@ fn fix_cargo_toml_workspace_inheritance(crate_dir: &Path) -> Result<()> {
         );
 
     std::fs::write(&cargo_toml_path, fixed_content).wrap_err("Failed to write fixed Cargo.toml")?;
+
+    Ok(())
+}
+
+/// Extract the embedded rclrs source to the specified output directory
+pub fn extract_embedded_rclrs(output_dir: &Path) -> Result<()> {
+    let target = output_dir.join("rclrs");
+
+    // Extract all files at root level
+    for file in RCLRS.files() {
+        let file_path = file.path();
+
+        // Skip certain files
+        if file_path == Path::new(".gitignore") {
+            continue;
+        }
+
+        let output_path = target.join(file_path);
+        std::fs::create_dir_all(&target)
+            .wrap_err_with(|| format!("Failed to create directory: {}", target.display()))?;
+
+        std::fs::write(&output_path, file.contents())
+            .wrap_err_with(|| format!("Failed to write file: {}", output_path.display()))?;
+    }
+
+    // Extract all directories and their files recursively
+    for dir in RCLRS.dirs() {
+        let dir_path = dir.path();
+
+        // Skip certain directories
+        if dir_path.starts_with("target") || dir_path.starts_with(".cargo") {
+            continue;
+        }
+
+        extract_dir_recursive(dir, &target)?;
+    }
+
+    // Fix Cargo.toml to use embedded rosidl_runtime_rs
+    fix_rclrs_cargo_toml(&target)?;
+
+    Ok(())
+}
+
+/// Fix rclrs Cargo.toml to use path dependency for embedded rosidl_runtime_rs
+fn fix_rclrs_cargo_toml(crate_dir: &Path) -> Result<()> {
+    let cargo_toml_path = crate_dir.join("Cargo.toml");
+    let content =
+        std::fs::read_to_string(&cargo_toml_path).wrap_err("Failed to read rclrs Cargo.toml")?;
+
+    // Replace rosidl_runtime_rs version dependency with path dependency
+    let fixed_content = content.replace(
+        "rosidl_runtime_rs = \"0.5\"",
+        "rosidl_runtime_rs = { path = \"../rosidl_runtime_rs\" }",
+    );
+
+    std::fs::write(&cargo_toml_path, fixed_content)
+        .wrap_err("Failed to write fixed rclrs Cargo.toml")?;
 
     Ok(())
 }

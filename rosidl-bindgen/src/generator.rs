@@ -41,19 +41,23 @@ pub struct GeneratedRustPackage {
     pub action_count: usize,
 }
 
-/// Ensure rosidl_runtime_rs crate exists in the output directory
-/// This shared crate is extracted once from the embedded source and used by all packages
+/// Ensure rosidl_runtime_rs and rclrs crates exist in the output directory
+/// These shared crates are extracted once from the embedded source and used by all packages
 fn ensure_rosidl_runtime_rs(output_dir: &Path) -> Result<()> {
     let runtime_rs_dir = output_dir.join("rosidl_runtime_rs");
+    let rclrs_dir = output_dir.join("rclrs");
 
-    // If it already exists, no need to extract
-    if runtime_rs_dir.exists() {
-        return Ok(());
+    // Extract rosidl_runtime_rs if it doesn't exist
+    if !runtime_rs_dir.exists() {
+        crate::embedded::extract_embedded_runtime_rs(output_dir)
+            .wrap_err("Failed to extract embedded rosidl_runtime_rs")?;
     }
 
-    // Extract embedded rosidl-runtime-rs source
-    crate::embedded::extract_embedded_runtime_rs(output_dir)
-        .wrap_err("Failed to extract embedded rosidl_runtime_rs")?;
+    // Extract rclrs if it doesn't exist
+    if !rclrs_dir.exists() {
+        crate::embedded::extract_embedded_rclrs(output_dir)
+            .wrap_err("Failed to extract embedded rclrs")?;
+    }
 
     Ok(())
 }
