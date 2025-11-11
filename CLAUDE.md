@@ -1,68 +1,128 @@
-# colcon-cargo-ros2: Rust Workspace + Python Colcon Plugin
+# colcon-cargo-ros2: Dual-Workspace ROS 2 Build System
 
-**This repository contains a consolidated hybrid package:**
-- **Rust Workspace**: 4 crates (`cargo-ros2-bindgen`, `rosidl-parser`, `rosidl-codegen`, `rosidl-runtime-rs`)
-- **Python Package**: `colcon_cargo_ros2` colcon extension (in `colcon-cargo-ros2/` subdirectory)
+**This repository contains two separate Cargo workspaces:**
+- **user-libs**: User-facing libraries (`rclrs`, `rosidl-runtime-rs`) - requires ROS 2 environment
+- **build-tools**: Build infrastructure (`rosidl-parser`, `rosidl-codegen`, `rosidl-bindgen`, `cargo-ros2`, `colcon-cargo-ros2`) - no ROS required
 
 ## Repository Structure
 
 ```
-colcon-cargo-ros2/  (THIS REPOSITORY - Standalone)
-├── Cargo.toml                    # Rust workspace manifest
-├── CLAUDE.md                     # This file
+colcon-cargo-ros2/  (THIS REPOSITORY)
+├── .envrc                        # Automatic ROS 2 environment setup (direnv)
+├── CLAUDE.md                     # This file (project instructions)
 ├── README.md                     # User-facing documentation
-├── justfile                      # Build automation (Rust + Python)
+├── justfile                      # Build automation (dual workspace + Python)
 │
-├── # RUST CRATES
-├── cargo-ros2-bindgen/           # Main binding generator
-├── rosidl-parser/                # ROS IDL parser
-├── rosidl-codegen/               # Code generator with templates
-├── rosidl-runtime-rs/            # Shared runtime library
+├── # USER-FACING LIBRARIES (requires ROS 2)
+├── user-libs/
+│   ├── Cargo.toml                # Workspace manifest
+│   ├── rclrs/                    # ROS 2 client library for Rust
+│   └── rosidl-runtime-rs/        # Runtime library for ROS messages
 │
-├── # PYTHON PACKAGE (subdirectory)
-├── colcon-cargo-ros2/
-│   ├── colcon_cargo_ros2/        # Python module
-│   ├── test/                     # Python tests
-│   ├── setup.py, setup.cfg       # Python package config
+├── # BUILD INFRASTRUCTURE (no ROS required)
+├── build-tools/
+│   ├── Cargo.toml                # Workspace manifest
+│   ├── rosidl-parser/            # ROS IDL parser (.msg, .srv, .action)
+│   ├── rosidl-codegen/           # Code generator with Askama templates
+│   ├── rosidl-bindgen/           # Binding generator (embeds user-libs)
+│   ├── cargo-ros2/               # Build orchestrator (pre-build + post-build)
+│   └── colcon-cargo-ros2/        # Python/PyO3 colcon extension
+│       ├── colcon_cargo_ros2/    # Python module
+│       ├── cargo-ros2-py/        # Rust library exposed to Python
+│       └── test/                 # Python tests
 │
 └── # BUILD & CI
-    ├── .github/workflows/        # CI for both Rust and Python
+    ├── .github/workflows/        # CI for both workspaces
     ├── .gitignore                # Rust + Python patterns
+    └── docs/                     # Architecture and design docs
 ```
 
 ## Development Workflows
 
-### Rust Development
+### Environment Setup
+
+**Automatic (Recommended)**:
 ```bash
-# Build all Rust crates
-cargo build --workspace
+# Install direnv: https://direnv.net/
+direnv allow  # Once - permits .envrc to run
 
-# Run tests
-cargo test --workspace
-
-# Lint
-cargo clippy --workspace -- -D warnings
+# ROS 2 environment now automatically loads when entering directory
+cd colcon-cargo-ros2/  # ✅ Sourced ROS 2 jazzy environment
 ```
 
-### Python Development
+**Manual**:
 ```bash
-# Install Python package in development mode
-pip3 install -e colcon-cargo-ros2/
-
-# Run Python tests
-pytest colcon-cargo-ros2/test/
-
-# Lint Python code
-just lint
+source /opt/ros/jazzy/setup.bash  # Or humble, iron, etc.
 ```
 
-### Combined Workflow
+### Build-Tools Workspace (No ROS Required)
+
 ```bash
-# Build everything (defined in justfile)
+# Build build-tools workspace
+just build-build-tools
+
+# Test build-tools workspace
+just test-build-tools
+
+# Clean build-tools workspace
+just clean-build-tools
+
+# Or use cargo directly
+cd build-tools && cargo build --workspace
+```
+
+### User-Libs Workspace (Requires ROS 2)
+
+```bash
+# Ensure ROS is sourced first!
+source /opt/ros/jazzy/setup.bash  # Or use direnv
+
+# Build user-libs workspace
+just build-user-libs
+
+# Test user-libs workspace
+just test-user-libs
+
+# Clean user-libs workspace
+just clean-user-libs
+
+# Or use cargo directly
+cd user-libs && cargo build --workspace
+```
+
+### Python Package (colcon-cargo-ros2)
+
+```bash
+# Build Python wheel (includes Rust extension via maturin)
+just build-python
+
+# Install wheel
+just install
+
+# Or install in development mode (editable)
+just install-python
+```
+
+### Combined Commands
+
+```bash
+# Build everything (both workspaces + Python wheel)
 just build
 
-# Install both Rust and Python
-just install
+# Test everything
+just test
+
+# Format all code
+just format
+
+# Lint all code
+just check
+
+# Run full quality checks (format + lint + test)
+just quality
+
+# Clean everything
+just clean
 ```
 
 ---
@@ -211,7 +271,47 @@ cargo ros2 build
 5. **Incremental**: Smart caching avoids regeneration (checksum-based)
 6. **colcon-Friendly**: Drop-in replacement for current cargo invocations
 
-## Recent Architectural Improvements (2025-11-07)
+## Recent Architectural Improvements (2025-11-11)
+
+### Dual Workspace Architecture (2025-11-11)
+
+Split the project into two independent Cargo workspaces to separate concerns:
+
+**Problem**: Building `rclrs` requires ROS 2 environment (`ROS_DISTRO`, sourced setup.bash), which made it impossible to run `cargo check` on build tools without ROS installed.
+
+**Solution**: Separate user-facing libraries from build infrastructure:
+
+```
+user-libs/          # Requires ROS 2 environment to build
+├── rclrs/          # ROS 2 client library (Node, Publisher, Subscription)
+└── rosidl-runtime-rs/  # Runtime support (Message trait, Sequence, String)
+
+build-tools/        # No ROS required - can develop without ROS installed!
+├── rosidl-parser/      # IDL parsing logic
+├── rosidl-codegen/     # Code generation with templates
+├── rosidl-bindgen/     # Embeds user-libs at compile time
+├── cargo-ros2/         # Build orchestrator
+└── colcon-cargo-ros2/  # Python/PyO3 colcon extension
+```
+
+**Benefits**:
+- **Independent development**: Can work on build tools without ROS environment
+- **Faster CI**: Build tools workspace checks don't require ROS installation
+- **Clear separation**: User-facing APIs separate from build infrastructure
+- **Embedded user-libs**: `rosidl-bindgen` embeds `rclrs` and `rosidl-runtime-rs` at compile time using `include_dir!` macro
+
+**New justfile commands**:
+```bash
+just build-build-tools   # Build without ROS
+just build-user-libs     # Build with ROS (requires sourced environment)
+just build               # Build both workspaces
+```
+
+**Environment setup**: Added `.envrc` for automatic ROS sourcing via [direnv](https://direnv.net/)
+
+---
+
+## Previous Architectural Improvements (2025-11-07)
 
 ### Shared Runtime Library (`rosidl_runtime_rs`)
 
@@ -538,7 +638,7 @@ Bash: python3 tmp/check_python_path.py
 
 ### Build and Install Workflow
 
-**CRITICAL**: After modifying code or templates, you MUST reinstall binaries to see changes take effect.
+**CRITICAL**: After modifying code or templates, you MUST rebuild and reinstall to see changes take effect.
 
 #### Template Changes (Most Important!)
 
@@ -546,63 +646,71 @@ Askama embeds templates at compile time. Simply rebuilding isn't enough - you mu
 
 ```bash
 # REQUIRED after modifying .jinja templates
-cargo clean          # Clear build cache (forces template re-embedding)
-just install         # Rebuild and install cargo-ros2 + cargo-ros2-bindgen
+just clean-build-tools   # Clear build cache (forces template re-embedding)
+just build-python        # Rebuild wheel (includes cargo-ros2 + rosidl-bindgen)
+just install             # Install wheel with all tools
 ```
 
 **Why this matters**:
-- Templates in `rosidl-codegen/templates/*.jinja` are embedded into `cargo-ros2-bindgen` at compile time
-- Without `cargo clean`, Askama may use cached template artifacts
-- Without reinstalling, the old binary in `~/.cargo/bin/` continues to be used
+- Templates in `build-tools/rosidl-codegen/templates/*.jinja` are embedded into `rosidl-bindgen` at compile time
+- Without cleaning, Askama may use cached template artifacts
+- The Python wheel bundles the Rust tools, so `just build-python` rebuilds everything
+- Without reinstalling, the old wheel continues to be used
 
 #### Code Changes (Less Critical)
 
 For regular code changes (not templates):
 
 ```bash
-just install         # Usually sufficient
-# OR
-cargo install --path cargo-ros2 --path cargo-ros2-bindgen  # Explicit install
+just build-python    # Rebuild wheel
+just install         # Install updated wheel
 ```
 
 #### Quick Development Cycle
 
 ```bash
 # 1. Make changes to code/templates
-# 2. Clean and install (if templates changed)
-cargo clean && just install
+# 2. Clean and rebuild (if templates changed)
+just clean-build-tools
+just build-python
+just install
 
 # 3. Test changes in workspace
 cd testing_workspaces/complex_workspace
-rm -rf src/*/target/ros2_bindings src/*/.ros2_bindgen_cache src/*/.cargo/config.toml
-just build
+rm -rf build/ros2_bindings build/.colcon src/*/.cargo/config.toml
+colcon build --packages-select <your-package>
 
 # 4. Verify results
-# If templates still don't apply, double-check you ran `cargo clean`!
+# If templates still don't apply, double-check you ran `just clean-build-tools`!
 ```
 
-**Common Mistake**: Forgetting to run `just install` after making changes, then wondering why the generated code hasn't changed. The system uses installed binaries from `~/.cargo/bin/`, not the ones in `target/`.
+**Common Mistake**: Forgetting to rebuild the wheel after making changes. The Python wheel bundles the Rust binaries, so changes won't take effect until you run `just build-python && just install`.
 
 ### Code Quality
 
 **IMPORTANT**: Always run format and lint before finishing your work:
 
 ```bash
-just quality      # Format code and check for linting issues (REQUIRED before committing)
+just quality      # Format + lint + test (REQUIRED before committing)
 ```
 
 This ensures:
-- Code is consistently formatted with nightly rustfmt
+- Code is consistently formatted with nightly rustfmt (both workspaces)
 - All clippy warnings are fixed (treated as errors with `-D warnings`)
+- All tests pass (Rust + Python)
 - Zero warnings in the codebase
 
 Alternative commands:
 ```bash
-just format               # Format code only
-just lint                 # Lint only
-just ci                   # Full CI workflow (format + lint + test)
-cargo fmt                 # Direct cargo command
-cargo clippy -- -D warnings   # Direct clippy
+just format               # Format code only (both workspaces + Python)
+just check                # Lint only (both workspaces + Python)
+just test                 # Test only (both workspaces + Python)
+
+# Workspace-specific commands
+just build-build-tools    # Build build-tools workspace only
+just test-build-tools     # Test build-tools workspace only (no ROS required)
+just build-user-libs      # Build user-libs workspace (requires ROS)
+just test-user-libs       # Test user-libs workspace (requires ROS)
 ```
 
 **Best Practice**: Run `just quality` at the end of each work session or before marking tasks as complete. This catches issues early and maintains high code quality standards.
@@ -638,7 +746,8 @@ MIT OR Apache-2.0 (to be decided - compatible with ROS 2 ecosystem)
 
 ---
 
-**Status**: Phase 3 Near Complete - Production Features (2025-11-07)
+**Status**: Phase 3 Near Complete - Production Features (2025-11-11)
 **Progress**: 14/20 subphases (70%) | 190+ tests passing | Zero warnings
-**Latest**: Shared rosidl_runtime_rs ✅, Workspace-aware linking ✅, colcon integration fixed ✅
+**Latest**: Dual workspace architecture ✅, Embedded user-libs ✅, .envrc for auto ROS sourcing ✅
+**Architecture**: Two independent workspaces (user-libs + build-tools), workspace-level binding generation, complete colcon integration
 **Next**: Phase 3.4 - Enhanced Testing & Documentation, then Phase 4 - colcon Integration (see docs/ROADMAP.md)
