@@ -1,6 +1,8 @@
 #![warn(missing_docs)]
 //! Bindings to `rosidl_runtime_c` and related functionality for messages.
 
+mod ffi;
+
 #[macro_use]
 mod sequence;
 pub use sequence::{BoundedSequence, Sequence, SequenceExceedsBoundsError};

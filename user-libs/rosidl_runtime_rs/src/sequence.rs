@@ -9,7 +9,7 @@ use std::{
 #[cfg(feature = "serde")]
 mod serde;
 
-use crate::traits::SequenceAlloc;
+use crate::{ffi, traits::SequenceAlloc};
 
 /// An unbounded sequence.
 ///
@@ -502,22 +502,14 @@ impl std::error::Error for SequenceExceedsBoundsError {}
 
 macro_rules! impl_sequence_alloc_for_primitive_type {
     ($rust_type:ty, $init_func:ident, $fini_func:ident, $copy_func:ident) => {
-        #[link(name = "rosidl_runtime_c")]
-        extern "C" {
-            fn $init_func(seq: *mut Sequence<$rust_type>, size: usize) -> bool;
-            fn $fini_func(seq: *mut Sequence<$rust_type>);
-            fn $copy_func(
-                in_seq: *const Sequence<$rust_type>,
-                out_seq: *mut Sequence<$rust_type>,
-            ) -> bool;
-        }
-
         impl SequenceAlloc for $rust_type {
             fn sequence_init(seq: &mut Sequence<Self>, size: usize) -> bool {
                 // SAFETY: There are no special preconditions to the sequence_init function.
+                // Sequence<T> has the same layout as ffi::SequenceInner<T> (#[repr(C)]).
                 unsafe {
                     // This allocates space and sets seq.size and seq.capacity to size
-                    let ret = $init_func(seq as *mut _, size);
+                    let ret =
+                        ffi::$init_func(seq as *mut _ as *mut ffi::SequenceInner<$rust_type>, size);
                     if !seq.data.is_null() {
                         // Zero memory, since it will be uninitialized if there is no default value
                         std::ptr::write_bytes(seq.data, 0u8, size);
@@ -527,11 +519,18 @@ macro_rules! impl_sequence_alloc_for_primitive_type {
             }
             fn sequence_fini(seq: &mut Sequence<Self>) {
                 // SAFETY: There are no special preconditions to the sequence_fini function.
-                unsafe { $fini_func(seq as *mut _) }
+                // Sequence<T> has the same layout as ffi::SequenceInner<T> (#[repr(C)]).
+                unsafe { ffi::$fini_func(seq as *mut _ as *mut ffi::SequenceInner<$rust_type>) }
             }
             fn sequence_copy(in_seq: &Sequence<Self>, out_seq: &mut Sequence<Self>) -> bool {
                 // SAFETY: There are no special preconditions to the sequence_copy function.
-                unsafe { $copy_func(in_seq as *const _, out_seq as *mut _) }
+                // Sequence<T> has the same layout as ffi::SequenceInner<T> (#[repr(C)]).
+                unsafe {
+                    ffi::$copy_func(
+                        in_seq as *const _ as *const ffi::SequenceInner<$rust_type>,
+                        out_seq as *mut _ as *mut ffi::SequenceInner<$rust_type>,
+                    )
+                }
             }
         }
     };

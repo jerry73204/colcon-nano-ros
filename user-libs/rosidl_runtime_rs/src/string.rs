@@ -10,7 +10,7 @@ use std::{
 #[cfg(feature = "serde")]
 mod serde;
 
-use crate::{sequence::Sequence, traits::SequenceAlloc};
+use crate::{ffi, sequence::Sequence, traits::SequenceAlloc};
 
 /// A zero-terminated UTF-8 string.
 ///
@@ -114,25 +114,18 @@ pub struct StringExceedsBoundsError {
 
 // There is a lot of redundancy between String and WString, which this macro aims to reduce.
 macro_rules! string_impl {
-    ($string:ty, $char_type:ty, $unsigned_char_type:ty, $string_conversion_func:ident, $init:ident, $fini:ident, $assignn:ident, $sequence_init:ident, $sequence_fini:ident, $sequence_copy:ident) => {
-        #[link(name = "rosidl_runtime_c")]
-        extern "C" {
-            fn $init(s: *mut $string) -> bool;
-            fn $fini(s: *mut $string);
-            fn $assignn(s: *mut $string, value: *const $char_type, n: usize) -> bool;
-            fn $sequence_init(seq: *mut Sequence<$string>, size: usize) -> bool;
-            fn $sequence_fini(seq: *mut Sequence<$string>);
-            fn $sequence_copy(
-                in_seq: *const Sequence<$string>,
-                out_seq: *mut Sequence<$string>,
-            ) -> bool;
-        }
-
+    ($string:ty, $char_type:ty, $unsigned_char_type:ty, $string_conversion_func:ident, $init:ident, $fini:ident, $assignn:ident, $sequence_init:ident, $sequence_fini:ident, $sequence_copy:ident, $ffi_string_type:ty, $ffi_sequence_type:ty) => {
         impl Clone for $string {
             fn clone(&self) -> Self {
                 let mut msg = Self::default();
                 // SAFETY: This is doing the same thing as rosidl_runtime_c__String__copy.
-                if !unsafe { $assignn(&mut msg as *mut _, self.data as *const _, self.size) } {
+                if !unsafe {
+                    ffi::$assignn(
+                        &mut msg as *mut _ as *mut $ffi_string_type,
+                        self.data as *const _,
+                        self.size,
+                    )
+                } {
                     panic!("$assignn failed");
                 }
                 msg
@@ -153,7 +146,7 @@ macro_rules! string_impl {
                     capacity: 0,
                 };
                 // SAFETY: Passing in a zeroed string is safe.
-                if !unsafe { $init(&mut msg as *mut _) } {
+                if !unsafe { ffi::$init(&mut msg as *mut _ as *mut $ffi_string_type) } {
                     panic!("$init failed");
                 }
                 msg
@@ -195,7 +188,7 @@ macro_rules! string_impl {
             fn drop(&mut self) {
                 // SAFETY: There are no special preconditions to the fini function.
                 unsafe {
-                    $fini(self as *mut _);
+                    ffi::$fini(self as *mut _ as *mut $ffi_string_type);
                 }
             }
         }
@@ -264,15 +257,20 @@ macro_rules! string_impl {
         impl SequenceAlloc for $string {
             fn sequence_init(seq: &mut Sequence<Self>, size: usize) -> bool {
                 // SAFETY: There are no special preconditions to the sequence_init function.
-                unsafe { $sequence_init(seq as *mut _, size) }
+                unsafe { ffi::$sequence_init(seq as *mut _ as *mut $ffi_sequence_type, size) }
             }
             fn sequence_fini(seq: &mut Sequence<Self>) {
                 // SAFETY: There are no special preconditions to the sequence_fini function.
-                unsafe { $sequence_fini(seq as *mut _) }
+                unsafe { ffi::$sequence_fini(seq as *mut _ as *mut $ffi_sequence_type) }
             }
             fn sequence_copy(in_seq: &Sequence<Self>, out_seq: &mut Sequence<Self>) -> bool {
                 // SAFETY: There are no special preconditions to the sequence_copy function.
-                unsafe { $sequence_copy(in_seq as *const _, out_seq as *mut _) }
+                unsafe {
+                    ffi::$sequence_copy(
+                        in_seq as *const _ as *const $ffi_sequence_type,
+                        out_seq as *mut _ as *mut $ffi_sequence_type,
+                    )
+                }
             }
         }
     };
@@ -288,7 +286,9 @@ string_impl!(
     rosidl_runtime_c__String__assignn,
     rosidl_runtime_c__String__Sequence__init,
     rosidl_runtime_c__String__Sequence__fini,
-    rosidl_runtime_c__String__Sequence__copy
+    rosidl_runtime_c__String__Sequence__copy,
+    ffi::rosidl_runtime_c__String,
+    ffi::SequenceInner<ffi::rosidl_runtime_c__String>
 );
 string_impl!(
     WString,
@@ -300,7 +300,9 @@ string_impl!(
     rosidl_runtime_c__U16String__assignn,
     rosidl_runtime_c__U16String__Sequence__init,
     rosidl_runtime_c__U16String__Sequence__fini,
-    rosidl_runtime_c__U16String__Sequence__copy
+    rosidl_runtime_c__U16String__Sequence__copy,
+    ffi::rosidl_runtime_c__U16String,
+    ffi::SequenceInner<ffi::rosidl_runtime_c__U16String>
 );
 
 impl<T> From<T> for String
@@ -317,7 +319,11 @@ where
         // SAFETY: It's okay to pass a non-zero-terminated string here since assignn uses the
         // specified length and will append the 0 byte to the dest string itself.
         if !unsafe {
-            rosidl_runtime_c__String__assignn(&mut msg as *mut _, s.as_ptr() as *const _, s.len())
+            ffi::rosidl_runtime_c__String__assignn(
+                &mut msg as *mut _ as *mut ffi::rosidl_runtime_c__String,
+                s.as_ptr() as *const _,
+                s.len(),
+            )
         } {
             panic!("rosidl_runtime_c__String__assignn failed");
         }
@@ -348,8 +354,8 @@ impl From<&str> for WString {
         // SAFETY: It's okay to pass a non-zero-terminated string here since assignn uses the
         // specified length and will append the 0 to the dest string itself.
         if !unsafe {
-            rosidl_runtime_c__U16String__assignn(
-                &mut msg as *mut _,
+            ffi::rosidl_runtime_c__U16String__assignn(
+                &mut msg as *mut _ as *mut ffi::rosidl_runtime_c__U16String,
                 buf.as_ptr() as *const _,
                 buf.len(),
             )
@@ -391,12 +397,21 @@ impl<const N: usize> SequenceAlloc for BoundedString<N> {
     fn sequence_init(seq: &mut Sequence<Self>, size: usize) -> bool {
         // SAFETY: There are no special preconditions to the rosidl_runtime_c__String__Sequence__init function.
         unsafe {
-            rosidl_runtime_c__String__Sequence__init(seq as *mut Sequence<Self> as *mut _, size)
+            ffi::rosidl_runtime_c__String__Sequence__init(
+                seq as *mut Sequence<Self>
+                    as *mut ffi::SequenceInner<ffi::rosidl_runtime_c__String>,
+                size,
+            )
         }
     }
     fn sequence_fini(seq: &mut Sequence<Self>) {
         // SAFETY: There are no special preconditions to the rosidl_runtime_c__String__Sequence__fini function.
-        unsafe { rosidl_runtime_c__String__Sequence__fini(seq as *mut Sequence<Self> as *mut _) }
+        unsafe {
+            ffi::rosidl_runtime_c__String__Sequence__fini(
+                seq as *mut Sequence<Self>
+                    as *mut ffi::SequenceInner<ffi::rosidl_runtime_c__String>,
+            )
+        }
     }
     fn sequence_copy(in_seq: &Sequence<Self>, out_seq: &mut Sequence<Self>) -> bool {
         // SAFETY: Transmute of a transparent type to the inner type is fine
@@ -457,12 +472,21 @@ impl<const N: usize> SequenceAlloc for BoundedWString<N> {
     fn sequence_init(seq: &mut Sequence<Self>, size: usize) -> bool {
         // SAFETY: There are no special preconditions to the rosidl_runtime_c__U16String__Sequence__init function.
         unsafe {
-            rosidl_runtime_c__U16String__Sequence__init(seq as *mut Sequence<Self> as *mut _, size)
+            ffi::rosidl_runtime_c__U16String__Sequence__init(
+                seq as *mut Sequence<Self>
+                    as *mut ffi::SequenceInner<ffi::rosidl_runtime_c__U16String>,
+                size,
+            )
         }
     }
     fn sequence_fini(seq: &mut Sequence<Self>) {
         // SAFETY: There are no special preconditions to the rosidl_runtime_c__U16String__Sequence__fini function.
-        unsafe { rosidl_runtime_c__U16String__Sequence__fini(seq as *mut Sequence<Self> as *mut _) }
+        unsafe {
+            ffi::rosidl_runtime_c__U16String__Sequence__fini(
+                seq as *mut Sequence<Self>
+                    as *mut ffi::SequenceInner<ffi::rosidl_runtime_c__U16String>,
+            )
+        }
     }
     fn sequence_copy(in_seq: &Sequence<Self>, out_seq: &mut Sequence<Self>) -> bool {
         // SAFETY: Transmute of a transparent type to the inner type is fine
