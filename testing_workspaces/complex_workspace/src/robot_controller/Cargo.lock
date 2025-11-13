@@ -10,6 +10,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cfg-if"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[package]]
 name = "geometry_msgs"
 version = "0.1.0"
 dependencies = [
@@ -39,7 +45,12 @@ dependencies = [
 
 [[package]]
 name = "rosidl_runtime_rs"
-version = "0.1.0"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b00ea2ee34606be89514fe2ba100b5fc6165e0f682824f1462f9b09105975566"
+dependencies = [
+ "cfg-if",
+]
 
 [[package]]
 name = "sensor_msgs"
@@ -120,10 +131,6 @@ name = "rcl_interfaces"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "rclrs"
-version = "0.6.0"
-
-[[patch.unused]]
 name = "rmw_dds_common"
 version = "0.1.0"
 
@@ -157,6 +164,10 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "stereo_msgs"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "test_msgs"
 version = "0.1.0"
 
 [[patch.unused]]

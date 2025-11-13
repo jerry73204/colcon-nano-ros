@@ -6,6 +6,7 @@
 //! - Write generated code to output directory with proper structure
 
 use crate::ament::Package;
+use askama::Template;
 use eyre::{Result, WrapErr};
 use rosidl_codegen::{
     generate_action_package, generate_message_package, generate_service_package,
@@ -14,6 +15,38 @@ use rosidl_codegen::{
 };
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+
+/// Interface info for template rendering
+#[derive(Debug, Clone)]
+struct InterfaceInfo {
+    type_name: String,
+    module_name: String,
+}
+
+/// Template for generating lib.rs
+#[derive(Template)]
+#[template(path = "lib.rs.jinja")]
+struct LibRsTemplate {
+    package_name: String,
+    ffi_module: String,
+    has_messages: bool,
+    has_services: bool,
+    has_actions: bool,
+    messages: Vec<InterfaceInfo>,
+    services: Vec<InterfaceInfo>,
+    actions: Vec<InterfaceInfo>,
+}
+
+/// Supported rosidl_runtime_rs version on crates.io
+///
+/// Generated bindings depend on this version from crates.io.
+/// Users must ensure this version is available in their Cargo dependencies.
+pub const ROSIDL_RUNTIME_RS_VERSION: &str = "0.5";
+
+/// Supported rclrs version on crates.io
+///
+/// For building ROS 2 nodes, users should depend on this version from crates.io.
+pub const RCLRS_VERSION: &str = "0.6";
 
 /// Top-level module name for C-compatible FFI layer (Foreign Function Interface).
 /// This is placed at the crate root level to avoid conflicts with any message/service/action names.
@@ -41,32 +74,8 @@ pub struct GeneratedRustPackage {
     pub action_count: usize,
 }
 
-/// Ensure rosidl_runtime_rs and rclrs crates exist in the output directory
-/// These shared crates are extracted once from the embedded source and used by all packages
-fn ensure_rosidl_runtime_rs(output_dir: &Path) -> Result<()> {
-    let runtime_rs_dir = output_dir.join("rosidl_runtime_rs");
-    let rclrs_dir = output_dir.join("rclrs");
-
-    // Extract rosidl_runtime_rs if it doesn't exist
-    if !runtime_rs_dir.exists() {
-        crate::embedded::extract_embedded_runtime_rs(output_dir)
-            .wrap_err("Failed to extract embedded rosidl_runtime_rs")?;
-    }
-
-    // Extract rclrs if it doesn't exist
-    if !rclrs_dir.exists() {
-        crate::embedded::extract_embedded_rclrs(output_dir)
-            .wrap_err("Failed to extract embedded rclrs")?;
-    }
-
-    Ok(())
-}
-
 /// Generate Rust bindings for a ROS 2 package
 pub fn generate_package(package: &Package, output_dir: &Path) -> Result<GeneratedRustPackage> {
-    // Ensure rosidl_runtime_rs crate is available (generate once per workspace)
-    ensure_rosidl_runtime_rs(output_dir)?;
-
     let package_output = output_dir.join(&package.name);
     std::fs::create_dir_all(&package_output).wrap_err_with(|| {
         format!(
@@ -281,109 +290,52 @@ fn generate_lib_rs(
     let src_dir = output_dir.join("src");
     std::fs::create_dir_all(&src_dir)?;
 
-    let mut lib_rs = String::new();
-    lib_rs.push_str("// Auto-generated Rust bindings for ROS 2 interface package\n");
-    lib_rs.push_str(&format!("// Package: {}\n\n", package.name));
+    // Collect message info
+    let messages: Vec<InterfaceInfo> = package
+        .interfaces
+        .messages
+        .iter()
+        .map(|name| InterfaceInfo {
+            type_name: name.clone(),
+            module_name: to_snake_case(name),
+        })
+        .collect();
 
-    // Suppress common warnings in generated code
-    lib_rs.push_str("#![allow(unused_imports)]\n\n");
+    // Collect service info
+    let services: Vec<InterfaceInfo> = package
+        .interfaces
+        .services
+        .iter()
+        .map(|name| InterfaceInfo {
+            type_name: name.clone(),
+            module_name: to_snake_case(name),
+        })
+        .collect();
 
-    // Import the shared rosidl_runtime_rs crate
-    lib_rs.push_str("// Import shared runtime library for ROS 2 types and traits\n");
-    lib_rs.push_str("use rosidl_runtime_rs;\n\n");
+    // Collect action info
+    let actions: Vec<InterfaceInfo> = package
+        .interfaces
+        .actions
+        .iter()
+        .map(|name| InterfaceInfo {
+            type_name: name.clone(),
+            module_name: to_snake_case(name),
+        })
+        .collect();
 
-    // Add top-level FFI module containing all FFI types
-    let has_any_interfaces = !package.interfaces.messages.is_empty()
-        || !package.interfaces.services.is_empty()
-        || !package.interfaces.actions.is_empty();
+    // Render template
+    let template = LibRsTemplate {
+        package_name: package.name.clone(),
+        ffi_module: FFI_MODULE.to_string(),
+        has_messages: !messages.is_empty(),
+        has_services: !services.is_empty(),
+        has_actions: !actions.is_empty(),
+        messages,
+        services,
+        actions,
+    };
 
-    if has_any_interfaces {
-        lib_rs.push_str(&format!("pub mod {} {{\n", FFI_MODULE));
-        lib_rs.push_str("    use super::rosidl_runtime_rs;\n\n");
-
-        // FFI messages
-        if !package.interfaces.messages.is_empty() {
-            lib_rs.push_str("    pub mod msg {\n");
-            lib_rs.push_str("        use super::*;\n");
-            for msg_name in &package.interfaces.messages {
-                let module_name = to_snake_case(msg_name);
-                // Files are in src/ffi/msg/, inline module context is also ffi/msg/
-                lib_rs.push_str(&format!("        #[path = \"{}_rmw.rs\"]\n", module_name));
-                lib_rs.push_str(&format!("        pub mod {};\n", module_name));
-            }
-            lib_rs.push_str("    }\n\n");
-        }
-
-        // FFI services
-        if !package.interfaces.services.is_empty() {
-            lib_rs.push_str("    pub mod srv {\n");
-            lib_rs.push_str("        use super::*;\n");
-            for srv_name in &package.interfaces.services {
-                let module_name = to_snake_case(srv_name);
-                // Files are in src/ffi/srv/, inline module context is also ffi/srv/
-                lib_rs.push_str(&format!("        #[path = \"{}_rmw.rs\"]\n", module_name));
-                lib_rs.push_str(&format!("        pub mod {};\n", module_name));
-            }
-            lib_rs.push_str("    }\n\n");
-        }
-
-        // FFI actions
-        if !package.interfaces.actions.is_empty() {
-            lib_rs.push_str("    pub mod action {\n");
-            lib_rs.push_str("        use super::*;\n");
-            for action_name in &package.interfaces.actions {
-                let module_name = to_snake_case(action_name);
-                // Files are in src/ffi/action/, inline module context is also ffi/action/
-                lib_rs.push_str(&format!("        #[path = \"{}_rmw.rs\"]\n", module_name));
-                lib_rs.push_str(&format!("        pub mod {};\n", module_name));
-            }
-            lib_rs.push_str("    }\n");
-        }
-
-        lib_rs.push_str("}\n\n");
-    }
-
-    // Add idiomatic message modules with flat re-exports
-    if !package.interfaces.messages.is_empty() {
-        lib_rs.push_str("pub mod msg {\n");
-        lib_rs.push_str("    use super::rosidl_runtime_rs;\n\n");
-        for msg_name in &package.interfaces.messages {
-            let module_name = to_snake_case(msg_name);
-            // Files are in src/msg/, inline module context is also msg/
-            // Use private module with public re-export for flat structure
-            lib_rs.push_str(&format!("    #[path = \"{}_idiomatic.rs\"]\n", module_name));
-            lib_rs.push_str(&format!("    mod {};\n", module_name));
-            lib_rs.push_str(&format!("    pub use {}::{};\n", module_name, msg_name));
-        }
-        lib_rs.push_str("}\n\n");
-    }
-
-    // Add idiomatic service modules
-    if !package.interfaces.services.is_empty() {
-        lib_rs.push_str("pub mod srv {\n");
-        lib_rs.push_str("    use super::rosidl_runtime_rs;\n\n");
-        for srv_name in &package.interfaces.services {
-            let module_name = to_snake_case(srv_name);
-            // Files are in src/srv/, inline module context is also srv/
-            lib_rs.push_str(&format!("    #[path = \"{}_idiomatic.rs\"]\n", module_name));
-            lib_rs.push_str(&format!("    pub mod {};\n", module_name));
-        }
-        lib_rs.push_str("}\n\n");
-    }
-
-    // Add idiomatic action modules
-    if !package.interfaces.actions.is_empty() {
-        lib_rs.push_str("pub mod action {\n");
-        lib_rs.push_str("    use super::rosidl_runtime_rs;\n\n");
-        for action_name in &package.interfaces.actions {
-            let module_name = to_snake_case(action_name);
-            // Files are in src/action/, inline module context is also action/
-            lib_rs.push_str(&format!("    #[path = \"{}_idiomatic.rs\"]\n", module_name));
-            lib_rs.push_str(&format!("    pub mod {};\n", module_name));
-        }
-        lib_rs.push_str("}\n");
-    }
-
+    let lib_rs = template.render()?;
     std::fs::write(src_dir.join("lib.rs"), lib_rs)?;
     Ok(())
 }
@@ -405,11 +357,11 @@ edition = "2021"
 [workspace]
 
 [dependencies]
-# Shared runtime library for ROS 2 types and traits
-rosidl_runtime_rs = {{ path = "../rosidl_runtime_rs" }}
+# Shared runtime library for ROS 2 types and traits (from crates.io)
+rosidl_runtime_rs = "{}"
 serde = {{ version = "1.0", features = ["derive"], optional = true }}
 "#,
-        package_name
+        package_name, ROSIDL_RUNTIME_RS_VERSION
     );
 
     // Add serde-big-array if needed for arrays > 32 elements

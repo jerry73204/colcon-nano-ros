@@ -91,9 +91,11 @@ pub enum FieldType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ConstantValue {
     Integer(i64),
+    UInteger(u64), // For values that exceed i64::MAX
     Float(f64),
     String(String),
     Bool(bool),
+    Array(Vec<ConstantValue>),
 }
 
 /// Message field

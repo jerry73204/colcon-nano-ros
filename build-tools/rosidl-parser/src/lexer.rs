@@ -84,6 +84,9 @@ pub enum TokenKind {
     #[token("-")]
     Minus,
 
+    #[token(",")]
+    Comma,
+
     // Identifiers (lowercase_with_underscores or UpperCamelCase)
     #[regex(r"[a-zA-Z][a-zA-Z0-9_]*")]
     Identifier,

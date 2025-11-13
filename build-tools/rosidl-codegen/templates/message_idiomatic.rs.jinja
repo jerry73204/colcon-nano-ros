@@ -34,33 +34,41 @@ impl Default for {{ message_name }} {
     }
 }
 
-// SequenceElement implementation - establishes type relationship for sequence conversions
-impl crate::rosidl_runtime_rs::SequenceElement for {{ message_name }} {
-    type RmwType = crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }};
-}
-
-// Reference-based conversions (used for sequence element conversions)
+// Reference-based conversions (idiomatic ↔ RMW)
 impl From<&{{ message_name }}> for crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }} {
     #[allow(unused_variables)]
     fn from(idiomatic: &{{ message_name }}) -> Self {
         Self {
             {% for field in fields %}
-            {% if field.is_primitive_sequence %}
-            // Vec<primitive> → Sequence<primitive> (direct conversion, no element conversion needed)
-            {{ field.name }}: idiomatic.{{ field.name }}.clone().into(),
-            {% else %}{% if field.is_sequence %}
-            // Vec → Sequence conversion using from_slice_converted for nested messages
-            {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from_slice_converted(&idiomatic.{{ field.name }}),
-            {% else %}{% if field.is_array %}
+            {% if field.is_wstring %}
+            // String → rosidl_runtime_rs::WString
+            {{ field.name }}: crate::rosidl_runtime_rs::WString::from(idiomatic.{{ field.name }}.as_str()),
+            {% else if field.is_string %}
+            // String → rosidl_runtime_rs::String (use rosidl_runtime_rs 0.5 API)
+            {{ field.name }}: crate::rosidl_runtime_rs::String::from(idiomatic.{{ field.name }}.as_str()),
+            {% else if field.is_primitive_sequence %}
+            // Vec<primitive> → Sequence<primitive> (use rosidl_runtime_rs 0.5 API)
+            {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(idiomatic.{{ field.name }}.clone()),
+            {% else if field.is_string_sequence %}
+            // Vec<String> → Sequence<rosidl_runtime_rs::String>
+            {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(
+                idiomatic.{{ field.name }}.iter().map(|item| crate::rosidl_runtime_rs::String::from(item.as_str())).collect::<Vec<_>>()
+            ),
+            {% else if field.is_sequence %}
+            // Vec → Sequence conversion with element conversion for nested messages
+            {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(
+                idiomatic.{{ field.name }}.iter().map(|item| item.into()).collect::<Vec<_>>()
+            ),
+            {% else if field.is_array %}
             // Arrays are Clone, just clone them
             {{ field.name }}: idiomatic.{{ field.name }}.clone(),
-            {% else %}{% if field.is_primitive %}
+            {% else if field.is_primitive %}
             // Primitives are Copy, just copy the value
             {{ field.name }}: idiomatic.{{ field.name }},
             {% else %}
             // Nested messages need reference conversion
             {{ field.name }}: (&idiomatic.{{ field.name }}).into(),
-            {% endif %}{% endif %}{% endif %}{% endif %}
+            {% endif %}
             {% endfor %}
         }
     }
@@ -71,22 +79,31 @@ impl From<&crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }}> f
     fn from(rmw: &crate::ffi::msg::{{ message_name|snake_case }}::{{ message_name }}) -> Self {
         Self {
             {% for field in fields %}
-            {% if field.is_primitive_sequence %}
-            // Sequence<primitive> → Vec<primitive> (direct conversion, no element conversion needed)
-            {{ field.name }}: rmw.{{ field.name }}.clone().into(),
-            {% else %}{% if field.is_sequence %}
-            // Sequence → Vec conversion using to_vec_converted for nested messages
-            {{ field.name }}: rmw.{{ field.name }}.to_vec_converted(),
-            {% else %}{% if field.is_array %}
+            {% if field.is_wstring %}
+            // rosidl_runtime_rs::WString → String
+            {{ field.name }}: rmw.{{ field.name }}.to_string(),
+            {% else if field.is_string %}
+            // rosidl_runtime_rs::String → String (use rosidl_runtime_rs 0.5 API)
+            {{ field.name }}: rmw.{{ field.name }}.to_string(),
+            {% else if field.is_primitive_sequence %}
+            // Sequence<primitive> → Vec<primitive> (use rosidl_runtime_rs 0.5 API)
+            {{ field.name }}: rmw.{{ field.name }}.as_slice().to_vec(),
+            {% else if field.is_string_sequence %}
+            // Sequence<rosidl_runtime_rs::String> → Vec<String>
+            {{ field.name }}: rmw.{{ field.name }}.as_slice().iter().map(|item| item.to_string()).collect(),
+            {% else if field.is_sequence %}
+            // Sequence → Vec conversion with element conversion for nested messages
+            {{ field.name }}: rmw.{{ field.name }}.as_slice().iter().map(|item| item.into()).collect(),
+            {% else if field.is_array %}
             // Arrays are Clone, just clone them
             {{ field.name }}: rmw.{{ field.name }}.clone(),
-            {% else %}{% if field.is_primitive %}
+            {% else if field.is_primitive %}
             // Primitives are Copy, just copy the value
             {{ field.name }}: rmw.{{ field.name }},
             {% else %}
             // Nested messages need reference conversion
             {{ field.name }}: (&rmw.{{ field.name }}).into(),
-            {% endif %}{% endif %}{% endif %}{% endif %}
+            {% endif %}
             {% endfor %}
         }
     }

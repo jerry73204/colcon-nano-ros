@@ -60,15 +60,33 @@ impl Parser {
         }
     }
 
-    fn parse_integer(&self, text: &str, kind: &TokenKind) -> ParseResult<i64> {
+    fn parse_integer(&self, text: &str, kind: &TokenKind, is_negative: bool) -> ParseResult<i64> {
+        // For negative numbers, prepend minus sign to handle i64::MIN correctly
+        let text_with_sign = if is_negative {
+            format!("-{}", text)
+        } else {
+            text.to_string()
+        };
+
         let result = match kind {
+            TokenKind::HexInteger if is_negative => {
+                // Parse without sign, then negate
+                i64::from_str_radix(&text[2..], 16).map(|v| -v)
+            }
             TokenKind::HexInteger => i64::from_str_radix(&text[2..], 16),
+            TokenKind::BinaryInteger if is_negative => {
+                i64::from_str_radix(&text[2..], 2).map(|v| -v)
+            }
             TokenKind::BinaryInteger => i64::from_str_radix(&text[2..], 2),
+            TokenKind::OctalInteger if is_negative => {
+                i64::from_str_radix(&text[2..], 8).map(|v| -v)
+            }
             TokenKind::OctalInteger => i64::from_str_radix(&text[2..], 8),
-            TokenKind::DecimalInteger => text.parse(),
+            TokenKind::DecimalInteger => text_with_sign.parse(),
             _ => return Err(ParseError::InvalidInteger(text.to_string())),
         };
-        result.map_err(|_| ParseError::InvalidInteger(text.to_string()))
+
+        result.map_err(|_| ParseError::InvalidInteger(text_with_sign))
     }
 
     fn parse_field_type(&mut self) -> ParseResult<FieldType> {
@@ -98,7 +116,7 @@ impl Parser {
                     let size_token = self.advance().ok_or(ParseError::UnexpectedEOF)?;
                     let text = size_token.text.clone();
                     let kind = size_token.kind.clone();
-                    let size = self.parse_integer(&text, &kind)?;
+                    let size = self.parse_integer(&text, &kind, false)?;
                     FieldType::BoundedString(size as usize)
                 } else {
                     FieldType::String
@@ -111,7 +129,7 @@ impl Parser {
                     let size_token = self.advance().ok_or(ParseError::UnexpectedEOF)?;
                     let text = size_token.text.clone();
                     let kind = size_token.kind.clone();
-                    let size = self.parse_integer(&text, &kind)?;
+                    let size = self.parse_integer(&text, &kind, false)?;
                     FieldType::BoundedWString(size as usize)
                 } else {
                     FieldType::WString
@@ -158,7 +176,7 @@ impl Parser {
                     let size_token = self.advance().ok_or(ParseError::UnexpectedEOF)?;
                     let text = size_token.text.clone();
                     let kind = size_token.kind.clone();
-                    let size = self.parse_integer(&text, &kind)?;
+                    let size = self.parse_integer(&text, &kind, false)?;
                     self.expect(TokenKind::RBracket)?;
                     Ok(FieldType::BoundedSequence {
                         element_type: Box::new(base_type),
@@ -175,7 +193,7 @@ impl Parser {
                     let size_token = self.advance().ok_or(ParseError::UnexpectedEOF)?;
                     let text = size_token.text.clone();
                     let kind = size_token.kind.clone();
-                    let size = self.parse_integer(&text, &kind)?;
+                    let size = self.parse_integer(&text, &kind, false)?;
                     self.expect(TokenKind::RBracket)?;
                     Ok(FieldType::Array {
                         element_type: Box::new(base_type),
@@ -210,11 +228,19 @@ impl Parser {
             | TokenKind::HexInteger
             | TokenKind::BinaryInteger
             | TokenKind::OctalInteger => {
-                let mut value = self.parse_integer(&text, &kind)?;
-                if is_negative {
-                    value = -value;
+                // Try parsing as i64 first
+                match self.parse_integer(&text, &kind, is_negative) {
+                    Ok(value) => Ok(ConstantValue::Integer(value)),
+                    Err(_) if !is_negative => {
+                        // If parsing as i64 failed and value is not negative,
+                        // try parsing as u64 for values > i64::MAX
+                        match text.parse::<u64>() {
+                            Ok(uvalue) => Ok(ConstantValue::UInteger(uvalue)),
+                            Err(_) => Err(ParseError::InvalidInteger(text)),
+                        }
+                    }
+                    Err(e) => Err(e),
                 }
-                Ok(ConstantValue::Integer(value))
             }
             TokenKind::Float => {
                 let mut value = text
@@ -293,6 +319,34 @@ impl Parser {
         }
     }
 
+    fn parse_array_literal(&mut self, _field_type: &FieldType) -> ParseResult<ConstantValue> {
+        self.expect(TokenKind::LBracket)?; // consume [
+
+        let mut values = Vec::new();
+
+        // Handle empty array []
+        if matches!(self.current().map(|t| &t.kind), Some(TokenKind::RBracket)) {
+            self.advance(); // consume ]
+            return Ok(ConstantValue::Array(values));
+        }
+
+        // Parse first value
+        // For array literals, we need to determine element type from context
+        // Use a dummy primitive type for parsing individual values
+        let dummy_type = FieldType::Primitive(PrimitiveType::Int32);
+        values.push(self.parse_constant_value(&dummy_type)?);
+
+        // Parse remaining values separated by commas
+        while matches!(self.current().map(|t| &t.kind), Some(TokenKind::Comma)) {
+            self.advance(); // consume ,
+            values.push(self.parse_constant_value(&dummy_type)?);
+        }
+
+        self.expect(TokenKind::RBracket)?; // consume ]
+
+        Ok(ConstantValue::Array(values))
+    }
+
     fn try_parse_default_value(
         &mut self,
         field_type: &FieldType,
@@ -304,6 +358,8 @@ impl Parser {
                 self.advance(); // consume =
                 Ok(Some(self.parse_constant_value(field_type)?))
             }
+            // Check for array literal [...]
+            Some(TokenKind::LBracket) => Ok(Some(self.parse_array_literal(field_type)?)),
             // Check for literal values (default value without =)
             Some(
                 TokenKind::DecimalInteger

@@ -5,7 +5,8 @@ use crate::templates::{
 };
 use crate::types::{
     constant_value_to_rust, escape_keyword, is_array_type, is_large_array, is_primitive_sequence,
-    is_primitive_type, is_sequence_type, rust_type_for_field,
+    is_primitive_type, is_sequence_type, is_string_sequence, is_string_type, is_wstring_type,
+    rust_type_for_field,
 };
 use crate::utils::{extract_dependencies, needs_big_array};
 use askama::Template;
@@ -117,8 +118,11 @@ pub fn generate_message_package(
             is_sequence: is_sequence_type(&f.field_type),
             is_primitive: is_primitive_type(&f.field_type),
             is_primitive_sequence: is_primitive_sequence(&f.field_type),
+            is_string_sequence: is_string_sequence(&f.field_type),
             is_array: is_array_type(&f.field_type),
             is_large_array: is_large_array(&f.field_type),
+            is_string: is_string_type(&f.field_type),
+            is_wstring: is_wstring_type(&f.field_type),
         })
         .collect();
 
@@ -229,8 +233,11 @@ pub fn generate_service_package(
                 is_sequence: is_sequence_type(&f.field_type),
                 is_primitive: is_primitive_type(&f.field_type),
                 is_primitive_sequence: is_primitive_sequence(&f.field_type),
+                is_string_sequence: is_string_sequence(&f.field_type),
                 is_array: is_array_type(&f.field_type),
                 is_large_array: is_large_array(&f.field_type),
+                is_string: is_string_type(&f.field_type),
+                is_wstring: is_wstring_type(&f.field_type),
             })
             .collect()
     };
@@ -360,8 +367,11 @@ pub fn generate_action_package(
                 is_sequence: is_sequence_type(&f.field_type),
                 is_primitive: is_primitive_type(&f.field_type),
                 is_primitive_sequence: is_primitive_sequence(&f.field_type),
+                is_string_sequence: is_string_sequence(&f.field_type),
                 is_array: is_array_type(&f.field_type),
                 is_large_array: is_large_array(&f.field_type),
+                is_string: is_string_type(&f.field_type),
+                is_wstring: is_wstring_type(&f.field_type),
             })
             .collect()
     };

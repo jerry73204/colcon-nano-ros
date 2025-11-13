@@ -51,18 +51,18 @@ clean-build-tools:
 # Build user-libs workspace
 build-user-libs:
     #!/usr/bin/env bash
-    set -e
-    cd user-libs
-    cargo build \
-        --profile dev-release \
-        --all-targets
+    for crate in user-libs/*; do
+        (cd $crate && \
+        cargo build --all-targets)
+    done
 
 # Test user-libs workspace
 test-user-libs:
     #!/usr/bin/env bash
-    set -e
-    cd user-libs
-    cargo nextest run --no-fail-fast --cargo-profile dev-release
+    for crate in user-libs/*; do
+        (cd $crate && \
+        cargo nextest run --no-fail-fast)
+    done
 
 # Clean user-libs workspace
 clean-user-libs:

@@ -12,13 +12,13 @@ pub mod request {
 
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-    pub struct {{ service_name }}Request {
+    pub struct {{ service_name }}_Request {
         {% for field in request_fields %}
         pub {{ field.name }}: {{ field.rust_type }},
         {% endfor %}
     }
 
-    impl {{ service_name }}Request {
+    impl {{ service_name }}_Request {
         {% if !request_constants.is_empty() %}
         // Request constants (matches C++/Python conventions)
         {% for constant in request_constants %}
@@ -31,7 +31,7 @@ pub mod request {
         }
     }
 
-    impl Default for {{ service_name }}Request {
+    impl Default for {{ service_name }}_Request {
         fn default() -> Self {
             // Leverage FFI message's C init function to get correct default values
             <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request::default())
@@ -39,29 +39,81 @@ pub mod request {
     }
 
     // Conversion from FFI layer
-    impl From<crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request> for {{ service_name }}Request {
+    impl From<crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request> for {{ service_name }}_Request {
         fn from(rmw: crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request) -> Self {
             Self {
                 {% for field in request_fields %}
-                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% if field.is_wstring %}
+                // rosidl_runtime_rs::WString → String
+                {{ field.name }}: rmw.{{ field.name }}.to_string(),
+                {% else if field.is_string %}
+                // rosidl_runtime_rs::String → String (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: rmw.{{ field.name }}.to_string(),
+                {% else if field.is_primitive_sequence %}
+                // Sequence<primitive> → Vec<primitive> (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: rmw.{{ field.name }}.as_slice().to_vec(),
+                {% else if field.is_string_sequence %}
+                // Sequence<rosidl_runtime_rs::String> → Vec<String>
+                {{ field.name }}: rmw.{{ field.name }}.as_slice().iter().map(|item| item.to_string()).collect(),
+                {% else if field.is_sequence %}
+                // Sequence → Vec conversion with element conversion
+                {{ field.name }}: rmw.{{ field.name }}.as_slice().iter().map(|item| item.into()).collect(),
+                {% else if field.is_array %}
+                // Arrays are Clone
+                {{ field.name }}: rmw.{{ field.name }}.clone(),
+                {% else if field.is_primitive %}
+                // Primitives are Copy, just copy the value
+                {{ field.name }}: rmw.{{ field.name }},
+                {% else %}
+                // Nested messages need reference conversion
+                {{ field.name }}: (&rmw.{{ field.name }}).into(),
+                {% endif %}
                 {% endfor %}
             }
         }
     }
 
     // Conversion to FFI layer
-    impl From<{{ service_name }}Request> for crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request {
-        fn from(idiomatic: {{ service_name }}Request) -> Self {
+    impl From<{{ service_name }}_Request> for crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request {
+        fn from(idiomatic: {{ service_name }}_Request) -> Self {
             Self {
                 {% for field in request_fields %}
-                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% if field.is_wstring %}
+                // String → rosidl_runtime_rs::WString
+                {{ field.name }}: crate::rosidl_runtime_rs::WString::from(idiomatic.{{ field.name }}.as_str()),
+                {% else if field.is_string %}
+                // String → rosidl_runtime_rs::String (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: crate::rosidl_runtime_rs::String::from(idiomatic.{{ field.name }}.as_str()),
+                {% else if field.is_primitive_sequence %}
+                // Vec<primitive> → Sequence<primitive> (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(idiomatic.{{ field.name }}.clone()),
+                {% else if field.is_string_sequence %}
+                // Vec<String> → Sequence<rosidl_runtime_rs::String>
+                {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(
+                    idiomatic.{{ field.name }}.iter().map(|item| crate::rosidl_runtime_rs::String::from(item.as_str())).collect::<Vec<_>>()
+                ),
+                {% else if field.is_sequence %}
+                // Vec → Sequence conversion with element conversion
+                {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(
+                    idiomatic.{{ field.name }}.iter().map(|item| item.into()).collect::<Vec<_>>()
+                ),
+                {% else if field.is_array %}
+                // Arrays are Clone
+                {{ field.name }}: idiomatic.{{ field.name }}.clone(),
+                {% else if field.is_primitive %}
+                // Primitives are Copy, just copy the value
+                {{ field.name }}: idiomatic.{{ field.name }},
+                {% else %}
+                // Nested messages need reference conversion
+                {{ field.name }}: (&idiomatic.{{ field.name }}).into(),
+                {% endif %}
                 {% endfor %}
             }
         }
     }
 
     // Message trait implementation for rosidl_runtime_rs
-    impl crate::rosidl_runtime_rs::Message for {{ service_name }}Request {
+    impl crate::rosidl_runtime_rs::Message for {{ service_name }}_Request {
         type RmwMsg = crate::ffi::srv::{{ service_name|snake_case }}::request::{{ service_name }}Request;
 
         fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
@@ -83,13 +135,13 @@ pub mod response {
 
     #[derive(Debug, Clone, PartialEq)]
     #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-    pub struct {{ service_name }}Response {
+    pub struct {{ service_name }}_Response {
         {% for field in response_fields %}
         pub {{ field.name }}: {{ field.rust_type }},
         {% endfor %}
     }
 
-    impl {{ service_name }}Response {
+    impl {{ service_name }}_Response {
         {% if !response_constants.is_empty() %}
         // Response constants (matches C++/Python conventions)
         {% for constant in response_constants %}
@@ -102,7 +154,7 @@ pub mod response {
         }
     }
 
-    impl Default for {{ service_name }}Response {
+    impl Default for {{ service_name }}_Response {
         fn default() -> Self {
             // Leverage FFI message's C init function to get correct default values
             <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response::default())
@@ -110,29 +162,81 @@ pub mod response {
     }
 
     // Conversion from FFI layer
-    impl From<crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response> for {{ service_name }}Response {
+    impl From<crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response> for {{ service_name }}_Response {
         fn from(rmw: crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response) -> Self {
             Self {
                 {% for field in response_fields %}
-                {{ field.name }}: rmw.{{ field.name }}.into(),
+                {% if field.is_wstring %}
+                // rosidl_runtime_rs::WString → String
+                {{ field.name }}: rmw.{{ field.name }}.to_string(),
+                {% else if field.is_string %}
+                // rosidl_runtime_rs::String → String (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: rmw.{{ field.name }}.to_string(),
+                {% else if field.is_primitive_sequence %}
+                // Sequence<primitive> → Vec<primitive> (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: rmw.{{ field.name }}.as_slice().to_vec(),
+                {% else if field.is_string_sequence %}
+                // Sequence<rosidl_runtime_rs::String> → Vec<String>
+                {{ field.name }}: rmw.{{ field.name }}.as_slice().iter().map(|item| item.to_string()).collect(),
+                {% else if field.is_sequence %}
+                // Sequence → Vec conversion with element conversion
+                {{ field.name }}: rmw.{{ field.name }}.as_slice().iter().map(|item| item.into()).collect(),
+                {% else if field.is_array %}
+                // Arrays are Clone
+                {{ field.name }}: rmw.{{ field.name }}.clone(),
+                {% else if field.is_primitive %}
+                // Primitives are Copy, just copy the value
+                {{ field.name }}: rmw.{{ field.name }},
+                {% else %}
+                // Nested messages need reference conversion
+                {{ field.name }}: (&rmw.{{ field.name }}).into(),
+                {% endif %}
                 {% endfor %}
             }
         }
     }
 
     // Conversion to FFI layer
-    impl From<{{ service_name }}Response> for crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response {
-        fn from(idiomatic: {{ service_name }}Response) -> Self {
+    impl From<{{ service_name }}_Response> for crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response {
+        fn from(idiomatic: {{ service_name }}_Response) -> Self {
             Self {
                 {% for field in response_fields %}
-                {{ field.name }}: idiomatic.{{ field.name }}.into(),
+                {% if field.is_wstring %}
+                // String → rosidl_runtime_rs::WString
+                {{ field.name }}: crate::rosidl_runtime_rs::WString::from(idiomatic.{{ field.name }}.as_str()),
+                {% else if field.is_string %}
+                // String → rosidl_runtime_rs::String (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: crate::rosidl_runtime_rs::String::from(idiomatic.{{ field.name }}.as_str()),
+                {% else if field.is_primitive_sequence %}
+                // Vec<primitive> → Sequence<primitive> (use rosidl_runtime_rs 0.5 API)
+                {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(idiomatic.{{ field.name }}.clone()),
+                {% else if field.is_string_sequence %}
+                // Vec<String> → Sequence<rosidl_runtime_rs::String>
+                {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(
+                    idiomatic.{{ field.name }}.iter().map(|item| crate::rosidl_runtime_rs::String::from(item.as_str())).collect::<Vec<_>>()
+                ),
+                {% else if field.is_sequence %}
+                // Vec → Sequence conversion with element conversion
+                {{ field.name }}: crate::rosidl_runtime_rs::Sequence::from(
+                    idiomatic.{{ field.name }}.iter().map(|item| item.into()).collect::<Vec<_>>()
+                ),
+                {% else if field.is_array %}
+                // Arrays are Clone
+                {{ field.name }}: idiomatic.{{ field.name }}.clone(),
+                {% else if field.is_primitive %}
+                // Primitives are Copy, just copy the value
+                {{ field.name }}: idiomatic.{{ field.name }},
+                {% else %}
+                // Nested messages need reference conversion
+                {{ field.name }}: (&idiomatic.{{ field.name }}).into(),
+                {% endif %}
                 {% endfor %}
             }
         }
     }
 
     // Message trait implementation for rosidl_runtime_rs
-    impl crate::rosidl_runtime_rs::Message for {{ service_name }}Response {
+    impl crate::rosidl_runtime_rs::Message for {{ service_name }}_Response {
         type RmwMsg = crate::ffi::srv::{{ service_name|snake_case }}::response::{{ service_name }}Response;
 
         fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
@@ -148,8 +252,8 @@ pub mod response {
 }
 
 // Re-export for convenience
-pub use request::{{ service_name }}Request;
-pub use response::{{ service_name }}Response;
+pub use request::{{ service_name }}_Request;
+pub use response::{{ service_name }}_Response;
 
 // Service type support
 #[link(name = "{{ package_name }}__rosidl_typesupport_c")]
@@ -161,8 +265,8 @@ extern "C" {
 pub struct {{ service_name }};
 
 impl crate::rosidl_runtime_rs::Service for {{ service_name }} {
-    type Request = {{ service_name }}Request;
-    type Response = {{ service_name }}Response;
+    type Request = {{ service_name }}_Request;
+    type Response = {{ service_name }}_Response;
 
     fn get_type_support() -> *const std::ffi::c_void {
         // SAFETY: No preconditions for this function

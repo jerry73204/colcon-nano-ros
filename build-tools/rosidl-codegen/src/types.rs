@@ -14,11 +14,40 @@ pub fn is_primitive_type(field_type: &FieldType) -> bool {
     matches!(field_type, FieldType::Primitive(_))
 }
 
+/// Check if a field type is a string type (String, BoundedString, WString, BoundedWString)
+pub fn is_string_type(field_type: &FieldType) -> bool {
+    matches!(
+        field_type,
+        FieldType::String
+            | FieldType::BoundedString(_)
+            | FieldType::WString
+            | FieldType::BoundedWString(_)
+    )
+}
+
+/// Check if a field type is specifically a WString type
+pub fn is_wstring_type(field_type: &FieldType) -> bool {
+    matches!(
+        field_type,
+        FieldType::WString | FieldType::BoundedWString(_)
+    )
+}
+
 /// Check if a field type is a sequence of primitives (can be copied directly)
 pub fn is_primitive_sequence(field_type: &FieldType) -> bool {
     match field_type {
         FieldType::Sequence { element_type } | FieldType::BoundedSequence { element_type, .. } => {
             matches!(**element_type, FieldType::Primitive(_))
+        }
+        _ => false,
+    }
+}
+
+/// Check if a field type is a sequence of strings
+pub fn is_string_sequence(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Sequence { element_type } | FieldType::BoundedSequence { element_type, .. } => {
+            is_string_type(element_type)
         }
         _ => false,
     }
@@ -38,6 +67,7 @@ pub fn is_large_array(field_type: &FieldType) -> bool {
 pub fn constant_value_to_rust(value: &ConstantValue) -> String {
     match value {
         ConstantValue::Integer(i) => i.to_string(),
+        ConstantValue::UInteger(u) => u.to_string(),
         ConstantValue::Float(f) => {
             // Ensure float literals always have decimal point
             let s = f.to_string();
@@ -49,6 +79,14 @@ pub fn constant_value_to_rust(value: &ConstantValue) -> String {
         }
         ConstantValue::Bool(b) => b.to_string(),
         ConstantValue::String(s) => format!("\"{}\"", s.escape_default()),
+        ConstantValue::Array(values) => {
+            let inner = values
+                .iter()
+                .map(constant_value_to_rust)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("[{}]", inner)
+        }
     }
 }
 

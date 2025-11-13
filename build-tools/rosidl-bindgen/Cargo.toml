@@ -12,9 +12,9 @@ name = "rosidl_bindgen"
 path = "src/lib.rs"
 
 [dependencies]
+askama.workspace = true
 clap.workspace = true
 eyre = "0.6"
-include_dir = "0.7"
 serde.workspace = true
 serde_json.workspace = true
 rosidl-codegen.workspace = true

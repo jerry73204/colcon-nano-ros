@@ -3,6 +3,11 @@
 
 // Stub trait definitions for rosidl_runtime_rs
 pub mod rosidl_runtime_rs {
+    /// Trait for types that can be used in sequences - establishes idiomatic ↔ RMW type relationship
+    pub trait SequenceElement {
+        type RmwType;
+    }
+
     pub trait SequenceAlloc {
         fn sequence_init(seq: &mut Sequence<Self>, size: usize) -> bool where Self: Sized;
         fn sequence_fini(seq: &mut Sequence<Self>) where Self: Sized;

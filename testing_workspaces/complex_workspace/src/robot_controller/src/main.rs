@@ -48,10 +48,10 @@ fn main() {
 
     // Custom service types
     println!("\n--- Custom Service Types ---");
-    let service_req = robot_interfaces::srv::set_mode::SetModeRequest::default();
+    let service_req = robot_interfaces::srv::SetMode_Request::default();
     println!("SetModeRequest: {:?}", service_req);
 
-    let service_resp = robot_interfaces::srv::set_mode::SetModeResponse::default();
+    let service_resp = robot_interfaces::srv::SetMode_Response::default();
     println!("SetModeResponse: {:?}", service_resp);
 
     // Custom action types

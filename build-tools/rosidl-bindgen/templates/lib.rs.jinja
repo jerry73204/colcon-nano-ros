@@ -1,0 +1,80 @@
+// Auto-generated Rust bindings for ROS 2 interface package
+// Package: {{ package_name }}
+
+#![allow(unused_imports)]
+
+// Import shared runtime library for ROS 2 types and traits (from crates.io)
+use rosidl_runtime_rs;
+
+{% if has_messages || has_services || has_actions %}
+pub mod {{ ffi_module }} {
+    use super::rosidl_runtime_rs;
+
+    {% if has_messages %}
+    pub mod msg {
+        use super::*;
+        {% for message in messages %}
+        #[path = "{{ message.module_name }}_rmw.rs"]
+        pub mod {{ message.module_name }};
+        {% endfor %}
+    }
+
+    {% endif %}
+    {% if has_services %}
+    pub mod srv {
+        use super::*;
+        {% for service in services %}
+        #[path = "{{ service.module_name }}_rmw.rs"]
+        pub mod {{ service.module_name }};
+        {% endfor %}
+    }
+
+    {% endif %}
+    {% if has_actions %}
+    pub mod action {
+        use super::*;
+        {% for action in actions %}
+        #[path = "{{ action.module_name }}_rmw.rs"]
+        pub mod {{ action.module_name }};
+        {% endfor %}
+    }
+    {% endif %}
+}
+
+{% endif %}
+{% if has_messages %}
+pub mod msg {
+    use super::rosidl_runtime_rs;
+
+    {% for message in messages %}
+    #[path = "{{ message.module_name }}_idiomatic.rs"]
+    mod {{ message.module_name }};
+    pub use {{ message.module_name }}::{{ message.type_name }};
+    {% endfor %}
+}
+
+{% endif %}
+{% if has_services %}
+pub mod srv {
+    use super::rosidl_runtime_rs;
+
+    {% for service in services %}
+    #[path = "{{ service.module_name }}_idiomatic.rs"]
+    pub mod {{ service.module_name }};
+    pub use {{ service.module_name }}::{{ service.type_name }};
+    pub use {{ service.module_name }}::{{ service.type_name }}_Request;
+    pub use {{ service.module_name }}::{{ service.type_name }}_Response;
+    {% endfor %}
+}
+
+{% endif %}
+{% if has_actions %}
+pub mod action {
+    use super::rosidl_runtime_rs;
+
+    {% for action in actions %}
+    #[path = "{{ action.module_name }}_idiomatic.rs"]
+    pub mod {{ action.module_name }};
+    {% endfor %}
+}
+{% endif %}
