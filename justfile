@@ -24,6 +24,20 @@ test-build-tools:
         --cargo-profile dev-release \
         --no-fail-fast
 
+# Format build-tools workspace
+format-build-tools:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools
+    cargo +nightly fmt
+
+# Check/lint build-tools workspace
+check-build-tools:
+    #!/usr/bin/env bash
+    set -e
+    cd build-tools
+    cargo clippy --workspace --all-targets -- -D warnings
+
 # Clean build-tools workspace
 clean-build-tools:
     #!/usr/bin/env bash
@@ -79,7 +93,7 @@ format-python:
     #!/usr/bin/env bash
     set -e
     cd build-tools/colcon-cargo-ros2
-    ruff check colcon_cargo_ros2/ test/
+    ruff format colcon_cargo_ros2/ test/
 
 # Lint Python code
 check-python:
@@ -101,20 +115,12 @@ clean: clean-build-tools clean-user-libs
 
 # Format all code (both workspaces + Python)
 format:
-    #!/usr/bin/env bash
-    set -e
-    cd build-tools && cargo +nightly fmt
-    cd ../user-libs && cargo +nightly fmt
-    cd ..
+    just format-build-tools
     just format-python
 
 # Lint and check all code (both workspaces + Python)
 check:
-    #!/usr/bin/env bash
-    set -e
-    cd build-tools && cargo clippy --workspace --all-targets -- -D warnings
-    cd ../user-libs && cargo clippy --workspace --all-targets -- -D warnings
-    cd ..
+    just check-build-tools
     just check-python
 
 # === QUALITY COMMANDS ===
