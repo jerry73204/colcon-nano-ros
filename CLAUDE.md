@@ -271,6 +271,53 @@ cargo ros2 build
 5. **Incremental**: Smart caching avoids regeneration (checksum-based)
 6. **colcon-Friendly**: Drop-in replacement for current cargo invocations
 
+## Recent Architectural Improvements (2025-11-14)
+
+### Constant Type Fix and Colcon Package Discovery (2025-11-14)
+
+**Problem 1**: String constants in generated code used non-const-compatible types (`String`, `rosidl_runtime_rs::String`), causing compilation errors:
+```rust
+pub const PASSWORD: String = "hunter2";  // ❌ Cannot initialize const String with &str
+```
+
+**Solution**: Created `rust_type_for_constant()` function that returns `&'static str` for all string types in constants:
+```rust
+pub const PASSWORD: &'static str = "hunter2";  // ✅ Const-compatible
+```
+
+**Files Modified**:
+- `build-tools/rosidl-codegen/src/types.rs`: Added `rust_type_for_constant()` function
+- `build-tools/rosidl-codegen/src/generator.rs`: Updated all constant generation (messages, services, actions) to use new function
+
+---
+
+**Problem 2**: Workspace binding generator hardcoded directory names `["src", "ros"]`, failing to discover packages in non-standard locations (e.g., `rclrs/`):
+```python
+for src_dir_name in ["src", "ros"]:  # ❌ Doesn't respect colcon's discovery
+    src_dir = self.workspace_root / src_dir_name
+```
+
+**Solution**: Implemented `PackageAugmentationExtensionPoint` to leverage colcon's native package discovery:
+- Receives ALL discovered packages from colcon (respects `--base-paths`, `--packages-select`, etc.)
+- Runs after package discovery, before build tasks start
+- Eliminates fragile filesystem scanning
+- Properly integrates with colcon's architecture
+
+**Files Created**:
+- `build-tools/colcon-cargo-ros2/colcon_cargo_ros2/package_augmentation/__init__.py`: New extension point
+
+**Files Modified**:
+- `build-tools/colcon-cargo-ros2/colcon_cargo_ros2/workspace_bindgen.py`: Uses packages from `RustBindingAugmentation._interface_packages`
+- `build-tools/colcon-cargo-ros2/pyproject.toml`: Registered new `colcon_core.package_augmentation` entry point
+
+**Benefits**:
+- **Proper colcon integration**: Uses colcon's package discovery instead of re-implementing it
+- **Respects user configuration**: Works with `--base-paths`, `--packages-select`, and other colcon flags
+- **No hardcoded paths**: Eliminates fragile directory name assumptions
+- **Architecturally correct**: `PackageAugmentationExtensionPoint` is designed for workspace-level operations
+
+---
+
 ## Recent Architectural Improvements (2025-11-11)
 
 ### Dual Workspace Architecture (2025-11-11)
@@ -746,8 +793,8 @@ MIT OR Apache-2.0 (to be decided - compatible with ROS 2 ecosystem)
 
 ---
 
-**Status**: Phase 3 Near Complete - Production Features (2025-11-11)
+**Status**: Phase 3 Near Complete - Production Features (2025-11-14)
 **Progress**: 14/20 subphases (70%) | 190+ tests passing | Zero warnings
-**Latest**: Dual workspace architecture ✅, Embedded user-libs ✅, .envrc for auto ROS sourcing ✅
-**Architecture**: Two independent workspaces (user-libs + build-tools), workspace-level binding generation, complete colcon integration
+**Latest**: Constant type fix ✅, PackageAugmentationExtensionPoint ✅, Proper colcon integration ✅
+**Architecture**: Two independent workspaces (user-libs + build-tools), workspace-level binding generation via colcon's package discovery, complete colcon integration
 **Next**: Phase 3.4 - Enhanced Testing & Documentation, then Phase 4 - colcon Integration (see docs/ROADMAP.md)
