@@ -28,12 +28,32 @@ struct InterfaceInfo {
 #[template(path = "lib.rs.jinja")]
 struct LibRsTemplate {
     package_name: String,
-    ffi_module: String,
     has_messages: bool,
     has_services: bool,
     has_actions: bool,
+}
+
+/// Template for generating msg.rs
+#[derive(Template)]
+#[template(path = "msg.rs.jinja")]
+struct MsgRsTemplate {
+    package_name: String,
     messages: Vec<InterfaceInfo>,
+}
+
+/// Template for generating srv.rs
+#[derive(Template)]
+#[template(path = "srv.rs.jinja")]
+struct SrvRsTemplate {
+    package_name: String,
     services: Vec<InterfaceInfo>,
+}
+
+/// Template for generating action.rs
+#[derive(Template)]
+#[template(path = "action.rs.jinja")]
+struct ActionRsTemplate {
+    package_name: String,
     actions: Vec<InterfaceInfo>,
 }
 
@@ -48,18 +68,11 @@ pub const ROSIDL_RUNTIME_RS_VERSION: &str = "0.5";
 /// For building ROS 2 nodes, users should depend on this version from crates.io.
 pub const RCLRS_VERSION: &str = "0.6";
 
-/// Top-level module name for C-compatible FFI layer (Foreign Function Interface).
-/// This is placed at the crate root level to avoid conflicts with any message/service/action names.
+/// Generated Rust package structure.
 ///
 /// The dual-layer architecture is:
-/// - `pkg::ffi::msg::Type` - C-compatible FFI structs for interop with ROS C libraries
+/// - `pkg::rmw::msg::Type` - C-compatible FFI structs for interop with ROS C libraries
 /// - `pkg::msg::Type` - Idiomatic Rust wrappers with safe types (String, Vec, etc.)
-///
-/// By placing `ffi` at the package root (not nested in msg/srv/action), it cannot conflict
-/// with any message names (e.g., ffi.msg, rmw.msg, etc.)
-const FFI_MODULE: &str = "ffi";
-
-/// Generated Rust package structure
 #[derive(Debug)]
 pub struct GeneratedRustPackage {
     /// Package name
@@ -164,6 +177,11 @@ pub fn generate_package(package: &Package, output_dir: &Path) -> Result<Generate
         all_dependencies.extend(result_deps);
         all_dependencies.extend(feedback_deps);
 
+        // Actions always require these dependencies
+        all_dependencies.insert("unique_identifier_msgs".to_string());
+        all_dependencies.insert("action_msgs".to_string());
+        all_dependencies.insert("builtin_interfaces".to_string());
+
         // Check if goal, result, or feedback needs big_array support
         if needs_big_array(&parsed_action.spec.goal)
             || needs_big_array(&parsed_action.spec.result)
@@ -212,20 +230,16 @@ fn write_generated_package(
     output_dir: &Path,
     name: &str,
 ) -> Result<()> {
-    // Create idiomatic message directory: src/msg/
-    let msg_dir = output_dir.join("src").join("msg");
-    std::fs::create_dir_all(&msg_dir)?;
+    // Create src directory
+    let src_dir = output_dir.join("src");
+    std::fs::create_dir_all(&src_dir)?;
 
-    // Create FFI message directory: src/ffi/msg/
-    let ffi_msg_dir = output_dir.join("src").join(FFI_MODULE).join("msg");
-    std::fs::create_dir_all(&ffi_msg_dir)?;
-
-    // Write FFI message to src/ffi/msg/
-    let rmw_file = ffi_msg_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
+    // Write RMW (FFI) message directly to src/
+    let rmw_file = src_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
     std::fs::write(&rmw_file, &generated.message_rmw)?;
 
-    // Write idiomatic message to src/msg/
-    let idiomatic_file = msg_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
+    // Write idiomatic message directly to src/
+    let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.message_idiomatic)?;
 
     Ok(())
@@ -237,20 +251,16 @@ fn write_generated_service(
     output_dir: &Path,
     name: &str,
 ) -> Result<()> {
-    // Create idiomatic service directory: src/srv/
-    let srv_dir = output_dir.join("src").join("srv");
-    std::fs::create_dir_all(&srv_dir)?;
+    // Create src directory
+    let src_dir = output_dir.join("src");
+    std::fs::create_dir_all(&src_dir)?;
 
-    // Create FFI service directory: src/ffi/srv/
-    let ffi_srv_dir = output_dir.join("src").join(FFI_MODULE).join("srv");
-    std::fs::create_dir_all(&ffi_srv_dir)?;
-
-    // Write FFI service to src/ffi/srv/
-    let rmw_file = ffi_srv_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
+    // Write RMW (FFI) service directly to src/
+    let rmw_file = src_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
     std::fs::write(&rmw_file, &generated.service_rmw)?;
 
-    // Write idiomatic service to src/srv/
-    let idiomatic_file = srv_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
+    // Write idiomatic service directly to src/
+    let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.service_idiomatic)?;
 
     Ok(())
@@ -262,20 +272,16 @@ fn write_generated_action(
     output_dir: &Path,
     name: &str,
 ) -> Result<()> {
-    // Create idiomatic action directory: src/action/
-    let action_dir = output_dir.join("src").join("action");
-    std::fs::create_dir_all(&action_dir)?;
+    // Create src directory
+    let src_dir = output_dir.join("src");
+    std::fs::create_dir_all(&src_dir)?;
 
-    // Create FFI action directory: src/ffi/action/
-    let ffi_action_dir = output_dir.join("src").join(FFI_MODULE).join("action");
-    std::fs::create_dir_all(&ffi_action_dir)?;
-
-    // Write FFI action to src/ffi/action/
-    let rmw_file = ffi_action_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
+    // Write RMW (FFI) action directly to src/
+    let rmw_file = src_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
     std::fs::write(&rmw_file, &generated.action_rmw)?;
 
-    // Write idiomatic action to src/action/
-    let idiomatic_file = action_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
+    // Write idiomatic action directly to src/
+    let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.action_idiomatic)?;
 
     Ok(())
@@ -326,17 +332,44 @@ fn generate_lib_rs(
     // Render template
     let template = LibRsTemplate {
         package_name: package.name.clone(),
-        ffi_module: FFI_MODULE.to_string(),
         has_messages: !messages.is_empty(),
         has_services: !services.is_empty(),
         has_actions: !actions.is_empty(),
-        messages,
-        services,
-        actions,
     };
 
     let lib_rs = template.render()?;
     std::fs::write(src_dir.join("lib.rs"), lib_rs)?;
+
+    // Generate msg.rs if there are messages
+    if !messages.is_empty() {
+        let msg_template = MsgRsTemplate {
+            package_name: package.name.clone(),
+            messages: messages.clone(),
+        };
+        let msg_rs = msg_template.render()?;
+        std::fs::write(src_dir.join("msg.rs"), msg_rs)?;
+    }
+
+    // Generate srv.rs if there are services
+    if !services.is_empty() {
+        let srv_template = SrvRsTemplate {
+            package_name: package.name.clone(),
+            services: services.clone(),
+        };
+        let srv_rs = srv_template.render()?;
+        std::fs::write(src_dir.join("srv.rs"), srv_rs)?;
+    }
+
+    // Generate action.rs if there are actions
+    if !actions.is_empty() {
+        let action_template = ActionRsTemplate {
+            package_name: package.name.clone(),
+            actions: actions.clone(),
+        };
+        let action_rs = action_template.render()?;
+        std::fs::write(src_dir.join("action.rs"), action_rs)?;
+    }
+
     Ok(())
 }
 
@@ -350,7 +383,7 @@ fn generate_cargo_toml(
     let mut cargo_toml = format!(
         r#"[package]
 name = "{}"
-version = "0.1.0"
+version = "{}.0"
 edition = "2021"
 
 # Standalone package (not part of parent workspace)
@@ -361,7 +394,7 @@ edition = "2021"
 rosidl_runtime_rs = "{}"
 serde = {{ version = "1.0", features = ["derive"], optional = true }}
 "#,
-        package_name, ROSIDL_RUNTIME_RS_VERSION
+        package_name, ROSIDL_RUNTIME_RS_VERSION, ROSIDL_RUNTIME_RS_VERSION
     );
 
     // Add serde-big-array if needed for arrays > 32 elements

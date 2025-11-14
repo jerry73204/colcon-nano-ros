@@ -25,12 +25,32 @@ pub fn is_string_type(field_type: &FieldType) -> bool {
     )
 }
 
-/// Check if a field type is specifically a WString type
+/// Check if a field type is specifically an unbounded string
+pub fn is_unbounded_string_type(field_type: &FieldType) -> bool {
+    matches!(field_type, FieldType::String)
+}
+
+/// Check if a field type is specifically a bounded string
+pub fn is_bounded_string_type(field_type: &FieldType) -> bool {
+    matches!(field_type, FieldType::BoundedString(_))
+}
+
+/// Check if a field type is a WString type (unbounded or bounded)
 pub fn is_wstring_type(field_type: &FieldType) -> bool {
     matches!(
         field_type,
         FieldType::WString | FieldType::BoundedWString(_)
     )
+}
+
+/// Check if a field type is specifically an unbounded WString
+pub fn is_unbounded_wstring_type(field_type: &FieldType) -> bool {
+    matches!(field_type, FieldType::WString)
+}
+
+/// Check if a field type is specifically a bounded WString
+pub fn is_bounded_wstring_type(field_type: &FieldType) -> bool {
+    matches!(field_type, FieldType::BoundedWString(_))
 }
 
 /// Check if a field type is a sequence of primitives (can be copied directly)
@@ -43,11 +63,31 @@ pub fn is_primitive_sequence(field_type: &FieldType) -> bool {
     }
 }
 
-/// Check if a field type is a sequence of strings
+/// Check if a field type is a sequence of strings (any string type)
 pub fn is_string_sequence(field_type: &FieldType) -> bool {
     match field_type {
         FieldType::Sequence { element_type } | FieldType::BoundedSequence { element_type, .. } => {
             is_string_type(element_type)
+        }
+        _ => false,
+    }
+}
+
+/// Check if a field type is a sequence of unbounded strings
+pub fn is_unbounded_string_sequence(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Sequence { element_type } | FieldType::BoundedSequence { element_type, .. } => {
+            is_unbounded_string_type(element_type)
+        }
+        _ => false,
+    }
+}
+
+/// Check if a field type is a sequence of bounded strings
+pub fn is_bounded_string_sequence(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Sequence { element_type } | FieldType::BoundedSequence { element_type, .. } => {
+            is_bounded_string_type(element_type)
         }
         _ => false,
     }
@@ -61,6 +101,53 @@ pub fn is_array_type(field_type: &FieldType) -> bool {
 /// Check if a field type is a large array (> 32 elements, needs big_array for serde)
 pub fn is_large_array(field_type: &FieldType) -> bool {
     matches!(field_type, FieldType::Array { size, .. } if *size > 32)
+}
+
+/// Check if a field type is an array of primitives (can be cloned directly)
+pub fn is_primitive_array(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Array { element_type, .. } => matches!(**element_type, FieldType::Primitive(_)),
+        _ => false,
+    }
+}
+
+/// Check if a field type is an array of strings (any string type)
+pub fn is_string_array(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Array { element_type, .. } => is_string_type(element_type),
+        _ => false,
+    }
+}
+
+/// Check if a field type is an array of unbounded strings
+pub fn is_unbounded_string_array(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Array { element_type, .. } => is_unbounded_string_type(element_type),
+        _ => false,
+    }
+}
+
+/// Check if a field type is an array of bounded strings
+pub fn is_bounded_string_array(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Array { element_type, .. } => is_bounded_string_type(element_type),
+        _ => false,
+    }
+}
+
+/// Check if a field type is an array of nested messages (needs element conversion)
+pub fn is_nested_array(field_type: &FieldType) -> bool {
+    match field_type {
+        FieldType::Array { element_type, .. } => {
+            matches!(**element_type, FieldType::NamespacedType { .. })
+        }
+        _ => false,
+    }
+}
+
+/// Check if a field type is a bounded sequence (vs unbounded)
+pub fn is_bounded_sequence(field_type: &FieldType) -> bool {
+    matches!(field_type, FieldType::BoundedSequence { .. })
 }
 
 /// Convert a ConstantValue to a Rust code string
@@ -187,8 +274,8 @@ pub fn rust_type_for_field(
                 if is_self_ref {
                     // Self-reference: use crate:: instead of pkg::
                     if rmw_layer {
-                        // RMW layer still uses nested modules
-                        format!("crate::ffi::msg::{}::{}", to_snake_case(name), name)
+                        // RMW layer uses rmw module
+                        format!("crate::msg::rmw::{}", name)
                     } else {
                         // Idiomatic layer uses flat re-exports
                         format!("crate::msg::{}", name)
@@ -196,8 +283,8 @@ pub fn rust_type_for_field(
                 } else {
                     // Cross-package reference
                     if rmw_layer {
-                        // RMW layer still uses nested modules
-                        format!("{}::ffi::msg::{}::{}", pkg, to_snake_case(name), name)
+                        // RMW layer uses rmw module
+                        format!("{}::msg::rmw::{}", pkg, name)
                     } else {
                         // Idiomatic layer uses flat re-exports
                         format!("{}::msg::{}", pkg, name)
@@ -206,12 +293,55 @@ pub fn rust_type_for_field(
             } else {
                 // Local same-package type reference (no package specified)
                 if rmw_layer {
-                    // RMW layer still uses nested modules
-                    format!("crate::ffi::msg::{}::{}", to_snake_case(name), name)
+                    // RMW layer uses rmw module
+                    format!("crate::msg::rmw::{}", name)
                 } else {
                     // Idiomatic layer uses flat re-exports
                     format!("crate::msg::{}", name)
                 }
+            }
+        }
+    }
+}
+
+/// Get the Rust type string for a constant
+/// Similar to `rust_type_for_field` but uses `&'static str` for string types
+/// since constants must be const-compatible
+pub fn rust_type_for_constant(field_type: &FieldType) -> String {
+    match field_type {
+        FieldType::Primitive(prim) => prim.rust_type().to_string(),
+
+        // All string types become &'static str for constants
+        FieldType::String
+        | FieldType::BoundedString(_)
+        | FieldType::WString
+        | FieldType::BoundedWString(_) => "&'static str".to_string(),
+
+        // Arrays, sequences, and namespaced types are not typically used as constants
+        // but we handle them for completeness
+        FieldType::Array { element_type, size } => {
+            let elem = rust_type_for_constant(element_type);
+            format!("[{}; {}]", elem, size)
+        }
+
+        FieldType::Sequence { element_type } => {
+            let elem = rust_type_for_constant(element_type);
+            format!("&'static [{}]", elem)
+        }
+
+        FieldType::BoundedSequence {
+            element_type,
+            max_size: _,
+        } => {
+            let elem = rust_type_for_constant(element_type);
+            format!("&'static [{}]", elem)
+        }
+
+        FieldType::NamespacedType { package, name } => {
+            if let Some(pkg) = package {
+                format!("{}::msg::{}", pkg, name)
+            } else {
+                format!("crate::msg::{}", name)
             }
         }
     }

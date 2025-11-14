@@ -61,10 +61,20 @@ pub struct IdiomaticField {
     pub is_primitive: bool,
     pub is_primitive_sequence: bool,
     pub is_string_sequence: bool,
+    pub is_unbounded_string_sequence: bool,
+    pub is_bounded_string_sequence: bool,
     pub is_array: bool,
     pub is_large_array: bool,
+    pub is_primitive_array: bool,
+    pub is_string_array: bool,
+    pub is_unbounded_string_array: bool,
+    pub is_bounded_string_array: bool,
+    pub is_nested_array: bool,
+    pub is_bounded_sequence: bool,
     pub is_string: bool,
+    pub is_bounded_string: bool,
     pub is_wstring: bool,
+    pub is_bounded_wstring: bool,
 }
 
 pub struct MessageConstant {

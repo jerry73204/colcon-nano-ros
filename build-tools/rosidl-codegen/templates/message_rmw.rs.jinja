@@ -2,8 +2,6 @@
 // Package: {{ package_name }}
 // Message: {{ message_name }}
 
-use crate::rosidl_runtime_rs;
-
 {% for constant in constants %}
 pub const {{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
 {% endfor %}

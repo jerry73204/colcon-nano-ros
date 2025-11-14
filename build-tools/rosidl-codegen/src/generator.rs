@@ -4,9 +4,12 @@ use crate::templates::{
     ServiceIdiomaticTemplate, ServiceRmwTemplate,
 };
 use crate::types::{
-    constant_value_to_rust, escape_keyword, is_array_type, is_large_array, is_primitive_sequence,
-    is_primitive_type, is_sequence_type, is_string_sequence, is_string_type, is_wstring_type,
-    rust_type_for_field,
+    constant_value_to_rust, escape_keyword, is_array_type, is_bounded_sequence,
+    is_bounded_string_array, is_bounded_string_sequence, is_bounded_string_type,
+    is_bounded_wstring_type, is_large_array, is_nested_array, is_primitive_array,
+    is_primitive_sequence, is_primitive_type, is_sequence_type, is_string_array,
+    is_string_sequence, is_string_type, is_unbounded_string_array, is_unbounded_string_sequence,
+    is_wstring_type, rust_type_for_constant, rust_type_for_field,
 };
 use crate::utils::{extract_dependencies, needs_big_array};
 use askama::Template;
@@ -90,7 +93,7 @@ pub fn generate_message_package(
         .iter()
         .map(|c| MessageConstant {
             name: c.name.clone(),
-            rust_type: rust_type_for_field(&c.constant_type, true, Some(package_name)),
+            rust_type: rust_type_for_constant(&c.constant_type),
             value: constant_value_to_rust(&c.value),
         })
         .collect();
@@ -119,10 +122,20 @@ pub fn generate_message_package(
             is_primitive: is_primitive_type(&f.field_type),
             is_primitive_sequence: is_primitive_sequence(&f.field_type),
             is_string_sequence: is_string_sequence(&f.field_type),
+            is_unbounded_string_sequence: is_unbounded_string_sequence(&f.field_type),
+            is_bounded_string_sequence: is_bounded_string_sequence(&f.field_type),
             is_array: is_array_type(&f.field_type),
             is_large_array: is_large_array(&f.field_type),
+            is_primitive_array: is_primitive_array(&f.field_type),
+            is_string_array: is_string_array(&f.field_type),
+            is_unbounded_string_array: is_unbounded_string_array(&f.field_type),
+            is_bounded_string_array: is_bounded_string_array(&f.field_type),
+            is_nested_array: is_nested_array(&f.field_type),
+            is_bounded_sequence: is_bounded_sequence(&f.field_type),
             is_string: is_string_type(&f.field_type),
+            is_bounded_string: is_bounded_string_type(&f.field_type),
             is_wstring: is_wstring_type(&f.field_type),
+            is_bounded_wstring: is_bounded_wstring_type(&f.field_type),
         })
         .collect();
 
@@ -131,7 +144,7 @@ pub fn generate_message_package(
         .iter()
         .map(|c| MessageConstant {
             name: c.name.clone(),
-            rust_type: rust_type_for_field(&c.constant_type, false, Some(package_name)),
+            rust_type: rust_type_for_constant(&c.constant_type),
             value: constant_value_to_rust(&c.value),
         })
         .collect();
@@ -234,20 +247,30 @@ pub fn generate_service_package(
                 is_primitive: is_primitive_type(&f.field_type),
                 is_primitive_sequence: is_primitive_sequence(&f.field_type),
                 is_string_sequence: is_string_sequence(&f.field_type),
+                is_unbounded_string_sequence: is_unbounded_string_sequence(&f.field_type),
+                is_bounded_string_sequence: is_bounded_string_sequence(&f.field_type),
                 is_array: is_array_type(&f.field_type),
                 is_large_array: is_large_array(&f.field_type),
+                is_primitive_array: is_primitive_array(&f.field_type),
+                is_string_array: is_string_array(&f.field_type),
+                is_unbounded_string_array: is_unbounded_string_array(&f.field_type),
+                is_bounded_string_array: is_bounded_string_array(&f.field_type),
+                is_nested_array: is_nested_array(&f.field_type),
+                is_bounded_sequence: is_bounded_sequence(&f.field_type),
                 is_string: is_string_type(&f.field_type),
+                is_bounded_string: is_bounded_string_type(&f.field_type),
                 is_wstring: is_wstring_type(&f.field_type),
+                is_bounded_wstring: is_bounded_wstring_type(&f.field_type),
             })
             .collect()
     };
 
-    let message_to_constants = |msg: &Message, rmw_layer: bool| {
+    let message_to_constants = |msg: &Message, _rmw_layer: bool| {
         msg.constants
             .iter()
             .map(|c| MessageConstant {
                 name: c.name.clone(),
-                rust_type: rust_type_for_field(&c.constant_type, rmw_layer, Some(package_name)),
+                rust_type: rust_type_for_constant(&c.constant_type),
                 value: constant_value_to_rust(&c.value),
             })
             .collect()
@@ -368,20 +391,30 @@ pub fn generate_action_package(
                 is_primitive: is_primitive_type(&f.field_type),
                 is_primitive_sequence: is_primitive_sequence(&f.field_type),
                 is_string_sequence: is_string_sequence(&f.field_type),
+                is_unbounded_string_sequence: is_unbounded_string_sequence(&f.field_type),
+                is_bounded_string_sequence: is_bounded_string_sequence(&f.field_type),
                 is_array: is_array_type(&f.field_type),
                 is_large_array: is_large_array(&f.field_type),
+                is_primitive_array: is_primitive_array(&f.field_type),
+                is_string_array: is_string_array(&f.field_type),
+                is_unbounded_string_array: is_unbounded_string_array(&f.field_type),
+                is_bounded_string_array: is_bounded_string_array(&f.field_type),
+                is_nested_array: is_nested_array(&f.field_type),
+                is_bounded_sequence: is_bounded_sequence(&f.field_type),
                 is_string: is_string_type(&f.field_type),
+                is_bounded_string: is_bounded_string_type(&f.field_type),
                 is_wstring: is_wstring_type(&f.field_type),
+                is_bounded_wstring: is_bounded_wstring_type(&f.field_type),
             })
             .collect()
     };
 
-    let message_to_constants = |msg: &Message, rmw_layer: bool| {
+    let message_to_constants = |msg: &Message, _rmw_layer: bool| {
         msg.constants
             .iter()
             .map(|c| MessageConstant {
                 name: c.name.clone(),
-                rust_type: rust_type_for_field(&c.constant_type, rmw_layer, Some(package_name)),
+                rust_type: rust_type_for_constant(&c.constant_type),
                 value: constant_value_to_rust(&c.value),
             })
             .collect()

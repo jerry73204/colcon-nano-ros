@@ -34,13 +34,13 @@ pub mod goal {
     impl Default for {{ action_name }}Goal {
         fn default() -> Self {
             // Leverage FFI message's C init function to get correct default values
-            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal::default())
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::action::rmw::{{ action_name }}Goal::default())
         }
     }
 
     // Conversion from FFI layer
-    impl From<crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal> for {{ action_name }}Goal {
-        fn from(rmw: crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal) -> Self {
+    impl From<crate::action::rmw::{{ action_name }}Goal> for {{ action_name }}Goal {
+        fn from(rmw: crate::action::rmw::{{ action_name }}Goal) -> Self {
             Self {
                 {% for field in goal_fields %}
                 {% if field.is_wstring %}
@@ -74,7 +74,7 @@ pub mod goal {
     }
 
     // Conversion to FFI layer
-    impl From<{{ action_name }}Goal> for crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal {
+    impl From<{{ action_name }}Goal> for crate::action::rmw::{{ action_name }}Goal {
         fn from(idiomatic: {{ action_name }}Goal) -> Self {
             Self {
                 {% for field in goal_fields %}
@@ -114,7 +114,7 @@ pub mod goal {
 
     // Message trait implementation for rosidl_runtime_rs
     impl crate::rosidl_runtime_rs::Message for {{ action_name }}Goal {
-        type RmwMsg = crate::ffi::action::{{ action_name|snake_case }}::goal::{{ action_name }}Goal;
+        type RmwMsg = crate::action::rmw::{{ action_name }}Goal;
 
         fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
             // Convert from idiomatic to RMW format
@@ -157,13 +157,13 @@ pub mod result {
     impl Default for {{ action_name }}Result {
         fn default() -> Self {
             // Leverage FFI message's C init function to get correct default values
-            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result::default())
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::action::rmw::{{ action_name }}Result::default())
         }
     }
 
     // Conversion from FFI layer
-    impl From<crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result> for {{ action_name }}Result {
-        fn from(rmw: crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result) -> Self {
+    impl From<crate::action::rmw::{{ action_name }}Result> for {{ action_name }}Result {
+        fn from(rmw: crate::action::rmw::{{ action_name }}Result) -> Self {
             Self {
                 {% for field in result_fields %}
                 {% if field.is_wstring %}
@@ -197,7 +197,7 @@ pub mod result {
     }
 
     // Conversion to FFI layer
-    impl From<{{ action_name }}Result> for crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result {
+    impl From<{{ action_name }}Result> for crate::action::rmw::{{ action_name }}Result {
         fn from(idiomatic: {{ action_name }}Result) -> Self {
             Self {
                 {% for field in result_fields %}
@@ -237,7 +237,7 @@ pub mod result {
 
     // Message trait implementation for rosidl_runtime_rs
     impl crate::rosidl_runtime_rs::Message for {{ action_name }}Result {
-        type RmwMsg = crate::ffi::action::{{ action_name|snake_case }}::result::{{ action_name }}Result;
+        type RmwMsg = crate::action::rmw::{{ action_name }}Result;
 
         fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
             // Convert from idiomatic to RMW format
@@ -280,13 +280,13 @@ pub mod feedback {
     impl Default for {{ action_name }}Feedback {
         fn default() -> Self {
             // Leverage FFI message's C init function to get correct default values
-            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback::default())
+            <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::action::rmw::{{ action_name }}Feedback::default())
         }
     }
 
     // Conversion from FFI layer
-    impl From<crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback> for {{ action_name }}Feedback {
-        fn from(rmw: crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback) -> Self {
+    impl From<crate::action::rmw::{{ action_name }}Feedback> for {{ action_name }}Feedback {
+        fn from(rmw: crate::action::rmw::{{ action_name }}Feedback) -> Self {
             Self {
                 {% for field in feedback_fields %}
                 {% if field.is_wstring %}
@@ -320,7 +320,7 @@ pub mod feedback {
     }
 
     // Conversion to FFI layer
-    impl From<{{ action_name }}Feedback> for crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback {
+    impl From<{{ action_name }}Feedback> for crate::action::rmw::{{ action_name }}Feedback {
         fn from(idiomatic: {{ action_name }}Feedback) -> Self {
             Self {
                 {% for field in feedback_fields %}
@@ -360,7 +360,7 @@ pub mod feedback {
 
     // Message trait implementation for rosidl_runtime_rs
     impl crate::rosidl_runtime_rs::Message for {{ action_name }}Feedback {
-        type RmwMsg = crate::ffi::action::{{ action_name|snake_case }}::feedback::{{ action_name }}Feedback;
+        type RmwMsg = crate::action::rmw::{{ action_name }}Feedback;
 
         fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
             // Convert from idiomatic to RMW format
@@ -378,3 +378,82 @@ pub mod feedback {
 pub use goal::{{ action_name }}Goal;
 pub use result::{{ action_name }}Result;
 pub use feedback::{{ action_name }}Feedback;
+
+// Action struct (zero-sized type)
+pub struct {{ action_name }};
+
+impl crate::rosidl_runtime_rs::Action for {{ action_name }} {
+    type Goal = {{ action_name }}Goal;
+    type Result = {{ action_name }}Result;
+    type Feedback = {{ action_name }}Feedback;
+    type FeedbackMessage = crate::action::rmw::{{ action_name }}FeedbackMessage;
+    type SendGoalService = crate::action::rmw::{{ action_name }}_SendGoal;
+    type GetResultService = crate::action::rmw::{{ action_name }}_GetResult;
+    type CancelGoalService = action_msgs::srv::rmw::CancelGoal;
+
+    fn get_type_support() -> *const std::ffi::c_void {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::get_type_support()
+    }
+
+    fn create_goal_request(
+        goal_id: &[u8; 16],
+        goal: crate::action::rmw::{{ action_name }}Goal,
+    ) -> crate::action::rmw::{{ action_name }}_SendGoal_Request {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::create_goal_request(goal_id, goal)
+    }
+
+    fn split_goal_request(
+        request: crate::action::rmw::{{ action_name }}_SendGoal_Request,
+    ) -> ([u8; 16], crate::action::rmw::{{ action_name }}Goal) {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::split_goal_request(request)
+    }
+
+    fn create_goal_response(
+        accepted: bool,
+        stamp: (i32, u32),
+    ) -> crate::action::rmw::{{ action_name }}_SendGoal_Response {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::create_goal_response(accepted, stamp)
+    }
+
+    fn get_goal_response_accepted(response: &crate::action::rmw::{{ action_name }}_SendGoal_Response) -> bool {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::get_goal_response_accepted(response)
+    }
+
+    fn get_goal_response_stamp(response: &crate::action::rmw::{{ action_name }}_SendGoal_Response) -> (i32, u32) {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::get_goal_response_stamp(response)
+    }
+
+    fn create_feedback_message(
+        goal_id: &[u8; 16],
+        feedback: crate::action::rmw::{{ action_name }}Feedback,
+    ) -> crate::action::rmw::{{ action_name }}FeedbackMessage {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::create_feedback_message(goal_id, feedback)
+    }
+
+    fn split_feedback_message(
+        feedback: crate::action::rmw::{{ action_name }}FeedbackMessage,
+    ) -> ([u8; 16], crate::action::rmw::{{ action_name }}Feedback) {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::split_feedback_message(feedback)
+    }
+
+    fn create_result_request(goal_id: &[u8; 16]) -> crate::action::rmw::{{ action_name }}_GetResult_Request {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::create_result_request(goal_id)
+    }
+
+    fn get_result_request_uuid(request: &crate::action::rmw::{{ action_name }}_GetResult_Request) -> &[u8; 16] {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::get_result_request_uuid(request)
+    }
+
+    fn create_result_response(
+        status: i8,
+        result: crate::action::rmw::{{ action_name }}Result,
+    ) -> crate::action::rmw::{{ action_name }}_GetResult_Response {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::create_result_response(status, result)
+    }
+
+    fn split_result_response(
+        response: crate::action::rmw::{{ action_name }}_GetResult_Response,
+    ) -> (i8, crate::action::rmw::{{ action_name }}Result) {
+        <crate::action::rmw::{{ action_name }} as crate::rosidl_runtime_rs::Action>::split_result_response(response)
+    }
+}
