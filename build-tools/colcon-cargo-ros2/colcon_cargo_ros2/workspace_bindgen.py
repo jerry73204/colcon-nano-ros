@@ -81,7 +81,7 @@ class WorkspaceBindingGenerator:
         logger.info("Workspace-level binding generation complete")
 
     def _discover_ros_packages(self) -> Dict[str, Path]:
-        """Discover all ROS packages from ament_index, install/, and workspace source.
+        """Discover all ROS packages from ament_index, install/, and colcon-discovered packages.
 
         Returns:
             Dict mapping package names to their share/ directory paths
@@ -115,39 +115,19 @@ class WorkspaceBindingGenerator:
                 if share_dir.exists() and (share_dir / "package.xml").exists():
                     packages[pkg_install.name] = share_dir
 
-        # 3. Scan workspace source directories for ROS interface packages
-        # This discovers workspace packages that haven't been installed yet
-        for src_dir_name in ["src", "ros"]:
-            src_dir = self.workspace_root / src_dir_name
-            if not src_dir.exists():
-                continue
+        # 3. Use packages discovered by colcon's PackageAugmentationExtensionPoint
+        # This respects colcon's package discovery (--base-paths, --packages-select, etc.)
+        try:
+            from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
 
-            # Walk the source directory looking for package.xml files
-            for package_xml in src_dir.rglob("package.xml"):
-                pkg_path = package_xml.parent
-                # Read package name from package.xml
-                try:
-                    tree = ET.parse(package_xml)
-                    root = tree.getroot()
-                    pkg_name_elem = root.find("name")
-                    if pkg_name_elem is not None and pkg_name_elem.text:
-                        pkg_name = pkg_name_elem.text.strip()
-                        # Only add if not already discovered and has interfaces
-                        if pkg_name not in packages:
-                            has_interfaces = any(
-                                [
-                                    (pkg_path / "msg").exists(),
-                                    (pkg_path / "srv").exists(),
-                                    (pkg_path / "action").exists(),
-                                ]
-                            )
-                            if has_interfaces:
-                                packages[pkg_name] = pkg_path
-                                logger.debug(
-                                    f"Discovered workspace package: {pkg_name} at {pkg_path}"
-                                )
-                except Exception as e:
-                    logger.debug(f"Failed to parse {package_xml}: {e}")
+            interface_packages = getattr(RustBindingAugmentation, '_interface_packages', {})
+            for pkg_name, pkg_path in interface_packages.items():
+                if pkg_name not in packages:
+                    # Use source directory directly for workspace packages
+                    packages[pkg_name] = pkg_path
+                    logger.debug(f"Using colcon-discovered package: {pkg_name} at {pkg_path}")
+        except ImportError:
+            logger.debug("Package augmentation not available, falling back to ament_index only")
 
         return packages
 

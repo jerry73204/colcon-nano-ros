@@ -34,6 +34,9 @@ Homepage = "https://colcon.readthedocs.io"
 Repository = "https://github.com/colcon/colcon-cargo-ros2"
 Changelog = "https://github.com/colcon/colcon-cargo-ros2/milestones?state=closed"
 
+[project.entry-points."colcon_core.package_augmentation"]
+"ros.cargo_ros2" = "colcon_cargo_ros2.package_augmentation:RustBindingAugmentation"
+
 [project.entry-points."colcon_core.task.build"]
 "ros.cargo_ros2" = "colcon_cargo_ros2.task.ament_cargo.build:AmentCargoBuildTask"
 
