@@ -30,12 +30,12 @@ impl {{ message_name }} {
 impl Default for {{ message_name }} {
     fn default() -> Self {
         // Leverage FFI message's C init function to get correct default values
-        <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::msg::rmw::{{ message_name }}::default())
+        <Self as crate::rosidl_runtime_rs::Message>::from_rmw_message(crate::ffi::msg::{{ message_module }}::{{ message_name }}::default())
     }
 }
 
 // Reference-based conversions (idiomatic ↔ RMW)
-impl From<&{{ message_name }}> for crate::msg::rmw::{{ message_name }} {
+impl From<&{{ message_name }}> for crate::ffi::msg::{{ message_module }}::{{ message_name }} {
     #[allow(unused_variables)]
     fn from(idiomatic: &{{ message_name }}) -> Self {
         Self {
@@ -112,9 +112,9 @@ impl From<&{{ message_name }}> for crate::msg::rmw::{{ message_name }} {
     }
 }
 
-impl From<&crate::msg::rmw::{{ message_name }}> for {{ message_name }} {
+impl From<&crate::ffi::msg::{{ message_module }}::{{ message_name }}> for {{ message_name }} {
     #[allow(unused_variables)]
-    fn from(rmw: &crate::msg::rmw::{{ message_name }}) -> Self {
+    fn from(rmw: &crate::ffi::msg::{{ message_module }}::{{ message_name }}) -> Self {
         Self {
             {% for field in fields %}
             {% if field.is_bounded_wstring %}
@@ -166,13 +166,13 @@ impl From<&crate::msg::rmw::{{ message_name }}> for {{ message_name }} {
 }
 
 // Owned conversions delegate to reference-based ones
-impl From<crate::msg::rmw::{{ message_name }}> for {{ message_name }} {
-    fn from(rmw: crate::msg::rmw::{{ message_name }}) -> Self {
+impl From<crate::ffi::msg::{{ message_module }}::{{ message_name }}> for {{ message_name }} {
+    fn from(rmw: crate::ffi::msg::{{ message_module }}::{{ message_name }}) -> Self {
         Self::from(&rmw)
     }
 }
 
-impl From<{{ message_name }}> for crate::msg::rmw::{{ message_name }} {
+impl From<{{ message_name }}> for crate::ffi::msg::{{ message_module }}::{{ message_name }} {
     fn from(idiomatic: {{ message_name }}) -> Self {
         Self::from(&idiomatic)
     }
@@ -180,7 +180,7 @@ impl From<{{ message_name }}> for crate::msg::rmw::{{ message_name }} {
 
 // Message trait implementation for rosidl_runtime_rs
 impl crate::rosidl_runtime_rs::Message for {{ message_name }} {
-    type RmwMsg = crate::msg::rmw::{{ message_name }};
+    type RmwMsg = crate::ffi::msg::{{ message_module }}::{{ message_name }};
 
     fn into_rmw_message(msg_cow: std::borrow::Cow<'_, Self>) -> std::borrow::Cow<'_, Self::RmwMsg> {
         // Convert from idiomatic to RMW format

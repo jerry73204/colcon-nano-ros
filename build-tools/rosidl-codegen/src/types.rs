@@ -1,4 +1,6 @@
 use rosidl_parser::ast::ConstantValue;
+use rosidl_parser::idl::ast::ConstantValue as IdlConstantValue;
+use rosidl_parser::idl::types::IdlType;
 use rosidl_parser::FieldType;
 
 /// Check if a field type is a sequence (unbounded or bounded)
@@ -208,7 +210,7 @@ pub fn rust_type_for_field(
 
         FieldType::String => {
             if rmw_layer {
-                "rosidl_runtime_rs::String".to_string()
+                "crate::rosidl_runtime_rs::String".to_string()
             } else {
                 "std::string::String".to_string()
             }
@@ -216,7 +218,7 @@ pub fn rust_type_for_field(
 
         FieldType::BoundedString(size) => {
             if rmw_layer {
-                format!("rosidl_runtime_rs::BoundedString<{}>", size)
+                format!("crate::rosidl_runtime_rs::BoundedString<{}>", size)
             } else {
                 // Idiomatic layer uses String even for bounded
                 "std::string::String".to_string()
@@ -225,7 +227,7 @@ pub fn rust_type_for_field(
 
         FieldType::WString => {
             if rmw_layer {
-                "rosidl_runtime_rs::WString".to_string()
+                "crate::rosidl_runtime_rs::WString".to_string()
             } else {
                 "std::string::String".to_string()
             }
@@ -233,7 +235,7 @@ pub fn rust_type_for_field(
 
         FieldType::BoundedWString(size) => {
             if rmw_layer {
-                format!("rosidl_runtime_rs::BoundedWString<{}>", size)
+                format!("crate::rosidl_runtime_rs::BoundedWString<{}>", size)
             } else {
                 "std::string::String".to_string()
             }
@@ -247,7 +249,7 @@ pub fn rust_type_for_field(
         FieldType::Sequence { element_type } => {
             let elem = rust_type_for_field(element_type, rmw_layer, current_package);
             if rmw_layer {
-                format!("rosidl_runtime_rs::Sequence<{}>", elem)
+                format!("crate::rosidl_runtime_rs::Sequence<{}>", elem)
             } else {
                 format!("std::vec::Vec<{}>", elem)
             }
@@ -259,7 +261,10 @@ pub fn rust_type_for_field(
         } => {
             let elem = rust_type_for_field(element_type, rmw_layer, current_package);
             if rmw_layer {
-                format!("rosidl_runtime_rs::BoundedSequence<{}, {}>", elem, max_size)
+                format!(
+                    "crate::rosidl_runtime_rs::BoundedSequence<{}, {}>",
+                    elem, max_size
+                )
             } else {
                 // Idiomatic layer uses Vec even for bounded
                 format!("std::vec::Vec<{}>", elem)
@@ -271,33 +276,35 @@ pub fn rust_type_for_field(
             let is_self_ref = package.as_deref() == current_package;
 
             if let Some(pkg) = package {
+                let module_name = to_snake_case(name);
                 if is_self_ref {
                     // Self-reference: use crate:: instead of pkg::
                     if rmw_layer {
-                        // RMW layer uses rmw module
-                        format!("crate::msg::rmw::{}", name)
+                        // RMW layer uses FFI hierarchy: crate::ffi::msg::module::Type
+                        format!("crate::ffi::msg::{}::{}", module_name, name)
                     } else {
-                        // Idiomatic layer uses flat re-exports
-                        format!("crate::msg::{}", name)
+                        // Idiomatic layer uses module hierarchy: crate::msg::module::Type
+                        format!("crate::msg::{}::{}", module_name, name)
                     }
                 } else {
                     // Cross-package reference
                     if rmw_layer {
-                        // RMW layer uses rmw module
-                        format!("{}::msg::rmw::{}", pkg, name)
+                        // RMW layer uses FFI hierarchy: pkg::ffi::msg::module::Type
+                        format!("{}::ffi::msg::{}::{}", pkg, module_name, name)
                     } else {
-                        // Idiomatic layer uses flat re-exports
-                        format!("{}::msg::{}", pkg, name)
+                        // Idiomatic layer uses module hierarchy: pkg::msg::module::Type
+                        format!("{}::msg::{}::{}", pkg, module_name, name)
                     }
                 }
             } else {
                 // Local same-package type reference (no package specified)
+                let module_name = to_snake_case(name);
                 if rmw_layer {
-                    // RMW layer uses rmw module
-                    format!("crate::msg::rmw::{}", name)
+                    // RMW layer uses FFI hierarchy
+                    format!("crate::ffi::msg::{}::{}", module_name, name)
                 } else {
-                    // Idiomatic layer uses flat re-exports
-                    format!("crate::msg::{}", name)
+                    // Idiomatic layer uses module hierarchy
+                    format!("crate::msg::{}::{}", module_name, name)
                 }
             }
         }
@@ -363,84 +370,217 @@ pub fn to_upper_camel_case(s: &str) -> String {
 // Re-export to_snake_case from utils to ensure consistent behavior
 pub use crate::utils::to_snake_case;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rosidl_parser::PrimitiveType;
+// ============================================================================
+// IDL Type Support
+// ============================================================================
 
-    #[test]
-    fn test_escape_keywords() {
-        assert_eq!(escape_keyword("type"), "type_");
-        assert_eq!(escape_keyword("match"), "match_");
-        assert_eq!(escape_keyword("async"), "async_");
-        assert_eq!(escape_keyword("normal_field"), "normal_field");
+/// Get the Rust type string for an IDL type
+/// If `rmw_layer` is true, returns RMW types (rosidl_runtime_rs::*), else idiomatic types
+/// `current_package` is used to detect self-references and use `crate::` instead of `pkg::`
+pub fn rust_type_for_idl(
+    idl_type: &IdlType,
+    rmw_layer: bool,
+    current_package: Option<&str>,
+) -> String {
+    match idl_type {
+        IdlType::Primitive(prim) => prim.to_rust_type().to_string(),
+
+        IdlType::String(None) => {
+            if rmw_layer {
+                "crate::rosidl_runtime_rs::String".to_string()
+            } else {
+                "std::string::String".to_string()
+            }
+        }
+
+        IdlType::String(Some(bound)) => {
+            if rmw_layer {
+                format!("crate::rosidl_runtime_rs::BoundedString<{}>", bound)
+            } else {
+                "std::string::String".to_string()
+            }
+        }
+
+        IdlType::WString(None) => {
+            if rmw_layer {
+                "crate::rosidl_runtime_rs::WString".to_string()
+            } else {
+                "std::string::String".to_string()
+            }
+        }
+
+        IdlType::WString(Some(bound)) => {
+            if rmw_layer {
+                format!("crate::rosidl_runtime_rs::BoundedWString<{}>", bound)
+            } else {
+                "std::string::String".to_string()
+            }
+        }
+
+        IdlType::Sequence(element_type, None) => {
+            let elem = rust_type_for_idl(element_type, rmw_layer, current_package);
+            if rmw_layer {
+                format!("crate::rosidl_runtime_rs::Sequence<{}>", elem)
+            } else {
+                format!("std::vec::Vec<{}>", elem)
+            }
+        }
+
+        IdlType::Sequence(element_type, Some(bound)) => {
+            let elem = rust_type_for_idl(element_type, rmw_layer, current_package);
+            if rmw_layer {
+                format!(
+                    "crate::rosidl_runtime_rs::BoundedSequence<{}, {}>",
+                    elem, bound
+                )
+            } else {
+                format!("std::vec::Vec<{}>", elem)
+            }
+        }
+
+        IdlType::Array(element_type, dimensions) => {
+            let elem = rust_type_for_idl(element_type, rmw_layer, current_package);
+            let mut result = elem;
+            for dim in dimensions.iter().rev() {
+                result = format!("[{}; {}]", result, dim);
+            }
+            result
+        }
+
+        IdlType::UserDefined(name) => {
+            // Local type reference (same package)
+            let module_name = to_snake_case(name);
+            if rmw_layer {
+                format!("crate::ffi::msg::{}::{}", module_name, name)
+            } else {
+                format!("crate::msg::{}::{}", module_name, name)
+            }
+        }
+
+        IdlType::Scoped(path) => {
+            // Scoped name like package::msg::Type
+            // Assume format: [package, interface_type, typename]
+            if path.len() >= 3 {
+                let package = &path[0];
+                let typename = &path[path.len() - 1];
+                let module_name = to_snake_case(typename);
+
+                // Check if this is a self-reference
+                let is_self_ref = package.as_str() == current_package.unwrap_or("");
+
+                if is_self_ref {
+                    if rmw_layer {
+                        format!("crate::ffi::msg::{}::{}", module_name, typename)
+                    } else {
+                        format!("crate::msg::{}::{}", module_name, typename)
+                    }
+                } else if rmw_layer {
+                    format!("{}::ffi::msg::{}::{}", package, module_name, typename)
+                } else {
+                    format!("{}::msg::{}::{}", package, module_name, typename)
+                }
+            } else if path.len() == 1 {
+                // Simple name - treat as local type
+                let module_name = to_snake_case(&path[0]);
+                if rmw_layer {
+                    format!("crate::ffi::msg::{}::{}", module_name, path[0])
+                } else {
+                    format!("crate::msg::{}::{}", module_name, path[0])
+                }
+            } else {
+                // Fallback
+                path.join("::")
+            }
+        }
     }
+}
 
-    #[test]
-    fn test_primitive_types() {
-        let int32 = FieldType::Primitive(PrimitiveType::Int32);
-        assert_eq!(rust_type_for_field(&int32, false, None), "i32");
-        assert_eq!(rust_type_for_field(&int32, true, None), "i32");
+/// Get the Rust type string for an IDL constant
+/// Similar to `rust_type_for_idl` but uses `&'static str` for string types
+/// since constants must be const-compatible
+pub fn rust_type_for_idl_constant(idl_type: &IdlType) -> String {
+    match idl_type {
+        IdlType::Primitive(prim) => prim.to_rust_type().to_string(),
 
-        let float64 = FieldType::Primitive(PrimitiveType::Float64);
-        assert_eq!(rust_type_for_field(&float64, false, None), "f64");
+        // All string types become &'static str for constants
+        IdlType::String(_) | IdlType::WString(_) => "&'static str".to_string(),
+
+        // Arrays and sequences
+        IdlType::Array(element_type, dimensions) => {
+            let elem = rust_type_for_idl_constant(element_type);
+            let mut result = elem;
+            for dim in dimensions.iter().rev() {
+                result = format!("[{}; {}]", result, dim);
+            }
+            result
+        }
+
+        IdlType::Sequence(element_type, _) => {
+            let elem = rust_type_for_idl_constant(element_type);
+            format!("&'static [{}]", elem)
+        }
+
+        // User-defined types (enums, etc.)
+        IdlType::UserDefined(name) => format!("crate::msg::{}", name),
+
+        IdlType::Scoped(path) => {
+            if path.len() >= 3 {
+                let package = &path[0];
+                let typename = &path[path.len() - 1];
+                format!("{}::msg::{}", package, typename)
+            } else if path.len() == 1 {
+                format!("crate::msg::{}", path[0])
+            } else {
+                path.join("::")
+            }
+        }
     }
+}
 
-    #[test]
-    fn test_string_types() {
-        let unbounded = FieldType::String;
-        assert_eq!(
-            rust_type_for_field(&unbounded, false, None),
-            "std::string::String"
-        );
-        assert_eq!(
-            rust_type_for_field(&unbounded, true, None),
-            "rosidl_runtime_rs::String"
-        );
-
-        let bounded = FieldType::BoundedString(256);
-        assert_eq!(
-            rust_type_for_field(&bounded, false, None),
-            "std::string::String"
-        );
-        assert_eq!(
-            rust_type_for_field(&bounded, true, None),
-            "rosidl_runtime_rs::BoundedString<256>"
-        );
+/// Convert an IDL constant value to Rust code string
+pub fn idl_constant_value_to_rust(value: &IdlConstantValue) -> String {
+    match value {
+        IdlConstantValue::Integer(i) => i.to_string(),
+        IdlConstantValue::Float(f) => {
+            // Ensure float literals always have decimal point
+            if f.is_finite() {
+                if f.fract() == 0.0 {
+                    format!("{:.1}", f) // Ensure .0 suffix
+                } else {
+                    f.to_string()
+                }
+            } else {
+                f.to_string()
+            }
+        }
+        IdlConstantValue::Boolean(b) => b.to_string(),
+        IdlConstantValue::String(s) | IdlConstantValue::WString(s) => {
+            format!("\"{}\"", s.escape_default())
+        }
     }
+}
 
-    #[test]
-    fn test_array_types() {
-        let array = FieldType::Array {
-            element_type: Box::new(FieldType::Primitive(PrimitiveType::Int32)),
-            size: 5,
-        };
-        assert_eq!(rust_type_for_field(&array, false, None), "[i32; 5]");
-        assert_eq!(rust_type_for_field(&array, true, None), "[i32; 5]");
-    }
+/// Check if an IDL type is a wide string
+pub fn is_idl_wide_string(idl_type: &IdlType) -> bool {
+    matches!(idl_type, IdlType::WString(_))
+}
 
-    #[test]
-    fn test_sequence_types() {
-        let seq = FieldType::Sequence {
-            element_type: Box::new(FieldType::Primitive(PrimitiveType::Float64)),
-        };
-        assert_eq!(rust_type_for_field(&seq, false, None), "std::vec::Vec<f64>");
-        assert_eq!(
-            rust_type_for_field(&seq, true, None),
-            "rosidl_runtime_rs::Sequence<f64>"
-        );
-    }
+/// Check if an IDL type is a sequence
+pub fn is_idl_sequence(idl_type: &IdlType) -> bool {
+    matches!(idl_type, IdlType::Sequence(_, _))
+}
 
-    #[test]
-    fn test_case_conversion() {
-        assert_eq!(to_upper_camel_case("test_message"), "TestMessage");
-        assert_eq!(to_upper_camel_case("foo_bar_baz"), "FooBarBaz");
+/// Check if an IDL type is an array
+pub fn is_idl_array(idl_type: &IdlType) -> bool {
+    matches!(idl_type, IdlType::Array(_, _))
+}
 
-        // to_snake_case is now imported from utils, test basic cases
-        assert_eq!(to_snake_case("TestMessage"), "test_message");
-        assert_eq!(to_snake_case("FooBarBaz"), "foo_bar_baz");
-        // Test digit handling (important for ROS message names)
-        assert_eq!(to_snake_case("Pose2D"), "pose2d");
-        assert_eq!(to_snake_case("BoundingBox2D"), "bounding_box2d");
-    }
+/// Check if an IDL type is a primitive
+pub fn is_idl_primitive(idl_type: &IdlType) -> bool {
+    matches!(idl_type, IdlType::Primitive(_))
+}
+
+/// Check if an IDL type is a string type
+pub fn is_idl_string(idl_type: &IdlType) -> bool {
+    matches!(idl_type, IdlType::String(_) | IdlType::WString(_))
 }

@@ -29,6 +29,12 @@ pub struct InterfaceFiles {
     pub services: Vec<String>,
     /// .action files (relative to share_dir/action/)
     pub actions: Vec<String>,
+    /// .idl files in msg/ (relative to share_dir/msg/)
+    pub idl_messages: Vec<String>,
+    /// .idl files in srv/ (relative to share_dir/srv/)
+    pub idl_services: Vec<String>,
+    /// .idl files in action/ (relative to share_dir/action/)
+    pub idl_actions: Vec<String>,
 }
 
 impl Package {
@@ -46,18 +52,21 @@ impl Package {
         let msg_dir = share_dir.join("msg");
         if msg_dir.exists() {
             interfaces.messages = discover_interface_files(&msg_dir, "msg")?;
+            interfaces.idl_messages = discover_interface_files(&msg_dir, "idl")?;
         }
 
         // Discover .srv files
         let srv_dir = share_dir.join("srv");
         if srv_dir.exists() {
             interfaces.services = discover_interface_files(&srv_dir, "srv")?;
+            interfaces.idl_services = discover_interface_files(&srv_dir, "idl")?;
         }
 
         // Discover .action files
         let action_dir = share_dir.join("action");
         if action_dir.exists() {
             interfaces.actions = discover_interface_files(&action_dir, "action")?;
+            interfaces.idl_actions = discover_interface_files(&action_dir, "idl")?;
         }
 
         Ok(Package {
@@ -84,11 +93,29 @@ impl Package {
             .join(format!("{}.action", name))
     }
 
+    /// Get the absolute path to an IDL message file
+    pub fn get_idl_message_path(&self, name: &str) -> PathBuf {
+        self.share_dir.join("msg").join(format!("{}.idl", name))
+    }
+
+    /// Get the absolute path to an IDL service file
+    pub fn get_idl_service_path(&self, name: &str) -> PathBuf {
+        self.share_dir.join("srv").join(format!("{}.idl", name))
+    }
+
+    /// Get the absolute path to an IDL action file
+    pub fn get_idl_action_path(&self, name: &str) -> PathBuf {
+        self.share_dir.join("action").join(format!("{}.idl", name))
+    }
+
     /// Check if package has any interface files
     pub fn has_interfaces(&self) -> bool {
         !self.interfaces.messages.is_empty()
             || !self.interfaces.services.is_empty()
             || !self.interfaces.actions.is_empty()
+            || !self.interfaces.idl_messages.is_empty()
+            || !self.interfaces.idl_services.is_empty()
+            || !self.interfaces.idl_actions.is_empty()
     }
 }
 

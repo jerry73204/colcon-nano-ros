@@ -11,7 +11,7 @@ use crate::types::{
     is_string_sequence, is_string_type, is_unbounded_string_array, is_unbounded_string_sequence,
     is_wstring_type, rust_type_for_constant, rust_type_for_field,
 };
-use crate::utils::{extract_dependencies, needs_big_array};
+use crate::utils::{extract_dependencies, needs_big_array, to_snake_case};
 use askama::Template;
 use rosidl_parser::{Action, Message, Service};
 use std::collections::HashSet;
@@ -98,9 +98,12 @@ pub fn generate_message_package(
         })
         .collect();
 
+    let message_module = &to_snake_case(message_name);
+
     let message_rmw_template = MessageRmwTemplate {
         package_name,
         message_name,
+        message_module,
         fields: rmw_fields,
         constants: rmw_constants,
     };
@@ -152,6 +155,7 @@ pub fn generate_message_package(
     let message_idiomatic_template = MessageIdiomaticTemplate {
         package_name,
         message_name,
+        message_module,
         fields: idiomatic_fields,
         constants: idiomatic_constants,
     };

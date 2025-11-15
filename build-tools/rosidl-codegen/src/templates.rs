@@ -34,6 +34,7 @@ pub struct LibRsTemplate {
 pub struct MessageRmwTemplate<'a> {
     pub package_name: &'a str,
     pub message_name: &'a str,
+    pub message_module: &'a str,
     pub fields: Vec<RmwField>,
     pub constants: Vec<MessageConstant>,
 }
@@ -43,6 +44,7 @@ pub struct MessageRmwTemplate<'a> {
 pub struct MessageIdiomaticTemplate<'a> {
     pub package_name: &'a str,
     pub message_name: &'a str,
+    pub message_module: &'a str,
     pub fields: Vec<IdiomaticField>,
     pub constants: Vec<MessageConstant>,
 }
