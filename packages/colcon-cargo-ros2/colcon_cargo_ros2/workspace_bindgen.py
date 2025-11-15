@@ -87,7 +87,21 @@ class WorkspaceBindingGenerator:
         """
         packages = {}
 
-        # 1. Discover from ament_index (system packages + already installed workspace packages)
+        # 1. First priority: Use packages discovered by colcon's PackageAugmentationExtensionPoint
+        # This respects colcon's package discovery (--base-paths, --packages-select, etc.)
+        # and provides source .msg files instead of generated .idl files from install/
+        from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
+
+        interface_packages = getattr(RustBindingAugmentation, "_interface_packages", {})
+        logger.info(
+            f"Colcon discovered {len(interface_packages)} interface packages: {list(interface_packages.keys())}"
+        )
+        for pkg_name, pkg_path in interface_packages.items():
+            # Use source directory directly for workspace packages
+            packages[pkg_name] = pkg_path
+            logger.info(f"Using colcon-discovered package: {pkg_name} at {pkg_path}")
+
+        # 2. Discover from ament_index (system packages + already installed workspace packages)
         try:
             from ament_index_python.packages import (
                 get_package_share_directory,
@@ -103,6 +117,9 @@ class WorkspaceBindingGenerator:
 
         all_packages = get_packages_with_prefixes()
         for pkg_name, pkg_prefix in all_packages.items():
+            # Skip if already discovered from source (prioritize source over install)
+            if pkg_name in packages:
+                continue
             try:
                 pkg_share = Path(get_package_share_directory(pkg_name))
                 if pkg_share.exists() and (pkg_share / "package.xml").exists():
@@ -113,30 +130,17 @@ class WorkspaceBindingGenerator:
                 logger.debug(f"Skipping package {pkg_name}: {e}")
                 continue
 
-        # 2. Check workspace install directory for packages not yet in ament_index
+        # 3. Check workspace install directory for packages not yet in ament_index
         if self.install_base.exists():
             for pkg_install in self.install_base.iterdir():
                 if not pkg_install.is_dir():
                     continue
+                # Skip if already discovered from source (prioritize source over install)
+                if pkg_install.name in packages:
+                    continue
                 share_dir = pkg_install / "share" / pkg_install.name
                 if share_dir.exists() and (share_dir / "package.xml").exists():
                     packages[pkg_install.name] = share_dir
-
-        # 3. Use packages discovered by colcon's PackageAugmentationExtensionPoint
-        # This respects colcon's package discovery (--base-paths, --packages-select, etc.)
-        from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
-
-        interface_packages = getattr(RustBindingAugmentation, "_interface_packages", {})
-        logger.info(
-            f"Colcon discovered {len(interface_packages)} interface packages: {list(interface_packages.keys())}"
-        )
-        for pkg_name, pkg_path in interface_packages.items():
-            if pkg_name not in packages:
-                # Use source directory directly for workspace packages
-                packages[pkg_name] = pkg_path
-                logger.info(
-                    f"Using colcon-discovered package: {pkg_name} at {pkg_path}"
-                )
 
         return packages
 
