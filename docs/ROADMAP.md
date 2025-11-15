@@ -13,7 +13,7 @@
 
 ## Progress Summary
 
-**Overall Progress**: 18 of 22 subphases complete (82%) + Phase 1 & Phase 4 In Progress! 🚀
+**Overall Progress**: 18 of 26 subphases complete (69%) + Phase 1 & Phase 4 In Progress! 🚀
 
 | Phase                                 | Status           | Progress             | Details |
 |---------------------------------------|------------------|----------------------|---------|
@@ -22,14 +22,15 @@
 | Phase 2: cargo-ros2 Tools             | ✅ Complete      | 2/2 subphases        | [View](ROADMAP/phase-2-tools.md) |
 | Phase 3: Production Features          | ✅ Complete      | 4/4 subphases        | [View](ROADMAP/phase-3-production.md) |
 | Phase 4: colcon Integration & Release | 🔄 In Progress   | 3/6 subphases        | [View](ROADMAP/phase-4-integration.md) |
+| Phase 5: OMG IDL 4.2 Support          | 📋 Planned       | 0/4 subphases        | [View](ROADMAP/phase-5-idl-support.md) |
 
-**Latest Achievement**: Completed Subphases 4.1 (colcon integration), 4.1.1 (config.toml refactoring), and 4.1.2 (code generation bug fixes). Clarified Subphase 4.1.3 design - current implementation is correct! Colcon's topological ordering guarantees dependencies are in install/ before dependents build. 82% overall completion! 🎉
+**Latest Achievement**: Workspace interface package discovery working! Fixed PackageAugmentationExtensionPoint to properly discover workspace packages. Eliminated Pokemon exception handling. Successfully tested in complex_workspace. Phase 5 (IDL support) planned for full ROS 2 compatibility! 🎉
 
 ---
 
 ## Current Status
 
-**Phase**: Phase 1 & Phase 4 In Progress (18/22 subphases complete - 82%) 🚀
+**Phase**: Phase 1 & Phase 4 In Progress (18/26 subphases complete - 69%) 🚀
 
 ### Completed ✅
 
@@ -165,6 +166,30 @@
 
 ---
 
+### Phase 5: OMG IDL 4.2 Support 📋 [Planned]
+
+**Goal**: Add native support for `.idl` files to enable advanced ROS 2 features and DDS interoperability.
+
+**Duration**: 6 weeks | **Status**: 📋 Planned (0/4 subphases)
+
+**Subphases**:
+- 📋 5.1: IDL Lexer and Parser (OMG IDL 4.2 subset, module hierarchy, annotations)
+- 📋 5.2: IDL Code Generation (constant modules, @default values, wide strings, enums)
+- 📋 5.3: Integration and Testing (cargo-ros2-bindgen integration, real-world validation)
+- 📋 5.4: Documentation and Polish (usage guide, examples, performance testing)
+
+**Motivation**:
+- `.idl` is the primary ROS 2 format (`.msg/.srv/.action` are legacy, converted to IDL internally)
+- Supports features unavailable in `.msg`: `@key` annotations, `@default` values, wide strings
+- Required for full ROS 2 compatibility and DDS interoperability
+- Real-world usage: packages like `rclrs_example_msgs` use `.idl` files directly
+
+**Key Achievement**: Full ROS 2 interface compatibility, enabling advanced messaging features.
+
+**[View Full Phase Details →](ROADMAP/phase-5-idl-support.md)**
+
+---
+
 ## Additional Resources
 
 ### Planning & Strategy
@@ -191,6 +216,6 @@
 
 ---
 
-**Last Updated**: 2025-11-05
+**Last Updated**: 2025-11-15
 
-**Project Status**: Active development, 82% complete, Phase 1 & Phase 4 in progress
+**Project Status**: Active development, 69% complete (18/26 subphases), Phase 1 & Phase 4 in progress, Phase 5 (IDL support) planned
