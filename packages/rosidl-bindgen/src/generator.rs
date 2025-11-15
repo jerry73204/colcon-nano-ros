@@ -7,7 +7,7 @@
 
 use crate::ament::Package;
 use askama::Template;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr};
 use rosidl_codegen::{
     generate_action_package, generate_message_package, generate_service_package,
     utils::{extract_dependencies, needs_big_array, to_snake_case},
@@ -287,37 +287,6 @@ fn write_generated_action(
     // Write idiomatic action directly to src/
     let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.action_idiomatic)?;
-
-    Ok(())
-}
-
-/// Write generated IDL code to files
-fn write_generated_idl(
-    generated: &rosidl_codegen::GeneratedIdlCode,
-    output_dir: &Path,
-    _name: &str,
-) -> Result<()> {
-    // Create src directory
-    let src_dir = output_dir.join("src");
-    std::fs::create_dir_all(&src_dir)?;
-
-    // Write each generated struct (message)
-    for (struct_name, code) in &generated.structs {
-        let file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(struct_name)));
-        std::fs::write(&file, code)?;
-    }
-
-    // Write constant modules
-    for (const_mod_name, code) in &generated.constant_modules {
-        let file = src_dir.join(format!("{}_constants.rs", to_snake_case(const_mod_name)));
-        std::fs::write(&file, code)?;
-    }
-
-    // Write enums
-    for (enum_name, code) in &generated.enums {
-        let file = src_dir.join(format!("{}_enum.rs", to_snake_case(enum_name)));
-        std::fs::write(&file, code)?;
-    }
 
     Ok(())
 }
