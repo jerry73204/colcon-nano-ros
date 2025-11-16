@@ -5,11 +5,22 @@ build-backend = "maturin"
 [project]
 name = "colcon-cargo-ros2"
 version = "0.2.0"
-description = "Extension for colcon to support Rust ROS 2 packages using cargo-ros2"
+description = "Extension for colcon to build Rust ROS 2 packages with automatic binding generation and ament installation"
+readme = "../../README.md"
 requires-python = ">=3.8"
 license = { text = "Apache-2.0" }
 authors = [
     { name = "Nikolai Morin", email = "nnmmgit@gmail.com" }
+]
+keywords = [
+    "ROS",
+    "ROS2",
+    "Rust",
+    "colcon",
+    "build-tool",
+    "robotics",
+    "message-generation",
+    "bindings"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -19,9 +30,16 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX",
-    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Rust",
     "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Scientific/Engineering",
 ]
 dependencies = [
     "colcon-core",
@@ -30,9 +48,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://colcon.readthedocs.io"
-Repository = "https://github.com/colcon/colcon-cargo-ros2"
-Changelog = "https://github.com/colcon/colcon-cargo-ros2/milestones?state=closed"
+Homepage = "https://github.com/jerry73204/colcon-cargo-ros2"
+Repository = "https://github.com/jerry73204/colcon-cargo-ros2"
+Documentation = "https://github.com/jerry73204/colcon-cargo-ros2#readme"
+Issues = "https://github.com/jerry73204/colcon-cargo-ros2/issues"
+Changelog = "https://github.com/jerry73204/colcon-cargo-ros2/releases"
 
 [project.entry-points."colcon_core.package_augmentation"]
 "ros.ament_cargo" = "colcon_cargo_ros2.package_augmentation:RustBindingAugmentation"
