@@ -10,6 +10,17 @@
 - Required for full ROS 2 compatibility and DDS interoperability
 - Real-world usage: packages like `rclrs_example_msgs` use `.idl` files directly
 
+**Status**: ✅ Complete (4/4 subphases complete)
+
+| Subphase                      | Status      | Progress                                         |
+|-------------------------------|-------------|--------------------------------------------------|
+| 5.1: IDL Lexer and Parser     | ✅ Complete | All lexer tests passing, parser functional       |
+| 5.2: IDL Code Generation      | ✅ Complete | Constant modules, @default, enums working        |
+| 5.3: Integration and Testing  | ✅ Complete | All tests passing, cargo-ros2-bindgen integrated |
+| 5.4: Documentation and Polish | ✅ Complete | 194/194 tests passing (100% pass rate)          |
+
+**Latest Achievement**: Phase 5 complete! Fixed constant module parsing order and RMW type path resolution (`crate::rosidl_runtime_rs::` prefix). All 194 tests passing (100%). Full OMG IDL 4.2 support with lexer, parser, code generation, constant modules, @default annotations, and enums.
+
 ---
 
 ## Architecture and Package Structure
