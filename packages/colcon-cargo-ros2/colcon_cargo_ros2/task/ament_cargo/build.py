@@ -171,12 +171,54 @@ class AmentCargoBuildTask(TaskExtensionPoint):
 
         return cmd
 
+    def _detect_cargo_profile(self, cargo_args, args):
+        """Detect the cargo build profile from command-line arguments.
+
+        Supports:
+        - --release flag → "release"
+        - --profile NAME → NAME (custom profile)
+        - --profile=NAME → NAME (custom profile)
+        - dev profile → "debug" (special case: dev outputs to target/debug/)
+        - default → "debug"
+        """
+        # Check colcon-level --release flag first
+        if hasattr(args, "release") and args.release:
+            return "release"
+
+        # Parse cargo arguments
+        i = 0
+        while i < len(cargo_args):
+            arg = cargo_args[i]
+
+            # Check for --release flag
+            if arg == "--release":
+                return "release"
+
+            # Check for --profile=NAME syntax
+            if arg.startswith("--profile="):
+                profile_name = arg.split("=", 1)[1]
+                # Special case: dev profile outputs to debug directory
+                return "debug" if profile_name == "dev" else profile_name
+
+            # Check for --profile NAME syntax (two separate args)
+            if arg == "--profile" and i + 1 < len(cargo_args):
+                profile_name = cargo_args[i + 1]
+                # Special case: dev profile outputs to debug directory
+                return "debug" if profile_name == "dev" else profile_name
+
+            i += 1
+
+        # Default to debug (dev profile)
+        return "debug"
+
     def _install_package(self):
         """Install package binaries and create ament markers using direct API call."""
         args = self.context.args
 
-        # Determine build profile
-        profile = "release" if hasattr(args, "release") and args.release else "debug"
+        # Determine build profile from cargo arguments
+        # Supports: --release, --profile NAME, --profile=NAME
+        cargo_args = getattr(args, "cargo_args", []) or []
+        profile = self._detect_cargo_profile(cargo_args, args)
         verbose = getattr(args, "verbose", False)
 
         # Execute installation via direct API call
