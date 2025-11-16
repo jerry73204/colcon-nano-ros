@@ -364,14 +364,63 @@ The Python package registers three extension points:
 
 ### Building Distribution
 
+#### Local Build (single platform)
+
 ```bash
-# Build Python wheel
+# Build Python wheel for your current platform
 just build-python
 
 # Wheel will be in packages/colcon-cargo-ros2/target/wheels/
 ```
 
+#### Multi-Platform Build (GitHub Actions)
+
+The repository has two GitHub Actions workflows:
+
+**1. Release Build** (`.github/workflows/wheels.yml`):
+- Builds wheels for Linux (x86_64, aarch64), macOS (x86_64, aarch64), Windows (x64)
+- Builds for Python 3.8, 3.9, 3.10, 3.11, 3.12
+- Automatically publishes to PyPI when you push a git tag
+- Triggered by: git tags `v*` or manual workflow dispatch
+
+**2. Test Build** (`.github/workflows/test-build.yml`):
+- Quick build test on Linux, macOS, Windows
+- Triggered by: pull requests and pushes to `main`
+- Does NOT publish to PyPI
+
+To trigger a release build:
+```bash
+git tag -a v0.2.0 -m "Release 0.2.0"
+git push origin v0.2.0
+```
+
+The workflow will:
+1. Build ~30 wheel files for all platforms
+2. Build source distribution
+3. Upload all wheels to PyPI automatically
+
 ### Publishing to PyPI
+
+```bash
+# 1. Build the wheel
+just build-python
+
+# 2. Validate the wheel
+just publish-check
+
+# 3. Upload to Test PyPI
+just publish-test
+
+# 4. Test installation from Test PyPI
+pip install --index-url https://test.pypi.org/simple/ \
+    --extra-index-url https://pypi.org/simple/ \
+    colcon-cargo-ros2
+
+# 5. Upload to production PyPI (requires confirmation)
+just publish
+```
+
+**Note**: The `just publish` command includes a safety confirmation prompt. Alternatively, you can use `twine` directly:
 
 ```bash
 cd packages/colcon-cargo-ros2
@@ -379,11 +428,8 @@ cd packages/colcon-cargo-ros2
 # Install twine if not already installed
 pip install twine
 
-# Upload to Test PyPI first (recommended)
+# Upload to Test PyPI
 twine upload --repository testpypi target/wheels/*.whl
-
-# Test installation from Test PyPI
-pip install --index-url https://test.pypi.org/simple/ colcon-cargo-ros2
 
 # Upload to production PyPI
 twine upload target/wheels/*.whl
