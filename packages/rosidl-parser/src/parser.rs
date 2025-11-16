@@ -210,7 +210,7 @@ impl Parser {
         }
     }
 
-    fn parse_constant_value(&mut self, _type_: &FieldType) -> ParseResult<ConstantValue> {
+    fn parse_constant_value(&mut self, type_: &FieldType) -> ParseResult<ConstantValue> {
         // Check for negative sign
         let is_negative = if matches!(self.current().map(|t| &t.kind), Some(TokenKind::Minus)) {
             self.advance(); // consume -
@@ -279,6 +279,46 @@ impl Parser {
                 // Remove quotes
                 let s = text.trim_matches(|c| c == '"' || c == '\'');
                 Ok(ConstantValue::String(s.to_string()))
+            }
+            // Handle unquoted strings for string/wstring types
+            // This allows constants like: string PARAM=/path/to/file
+            _ if matches!(
+                type_,
+                FieldType::String
+                    | FieldType::WString
+                    | FieldType::BoundedString(_)
+                    | FieldType::BoundedWString(_)
+            ) =>
+            {
+                if is_negative {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: "string value".to_string(),
+                        got: format!("-{}", text),
+                    });
+                }
+                // For unquoted strings, consume tokens until we hit end of line or a meaningful separator
+                // Start with the current token
+                let mut parts = vec![text];
+
+                // Continue consuming tokens that could be part of an unquoted string
+                while let Some(next_token) = self.current() {
+                    match &next_token.kind {
+                        // These tokens can be part of an unquoted string constant
+                        TokenKind::Identifier
+                        | TokenKind::Slash
+                        | TokenKind::Minus
+                        | TokenKind::DecimalInteger
+                        | TokenKind::HexInteger
+                        | TokenKind::BinaryInteger
+                        | TokenKind::OctalInteger => {
+                            parts.push(self.advance().unwrap().text.clone());
+                        }
+                        // Stop at these tokens (they mark end of constant)
+                        _ => break,
+                    }
+                }
+
+                Ok(ConstantValue::String(parts.join("")))
             }
             _ => Err(ParseError::UnexpectedToken {
                 expected: "constant value".to_string(),
@@ -656,6 +696,47 @@ mod tests {
         assert!(matches!(
             msg.fields[3].default_value,
             Some(ConstantValue::Integer(1))
+        ));
+    }
+
+    #[test]
+    fn parse_unquoted_string_constant() {
+        // Test unquoted string constants (from bond/Constants.msg)
+        let msg = parse_message(
+            "string DISABLE_HEARTBEAT_TIMEOUT_PARAM=/bond_disable_heartbeat_timeout\n",
+        )
+        .unwrap();
+        assert_eq!(msg.constants.len(), 1);
+        assert_eq!(msg.constants[0].name, "DISABLE_HEARTBEAT_TIMEOUT_PARAM");
+        assert!(matches!(
+            &msg.constants[0].value,
+            ConstantValue::String(s) if s == "/bond_disable_heartbeat_timeout"
+        ));
+    }
+
+    #[test]
+    fn parse_bond_constants_message() {
+        // Test the actual bond/Constants.msg file
+        let input = r#"float32 DEAD_PUBLISH_PERIOD = 0.05
+float32 DEFAULT_CONNECT_TIMEOUT = 10.0
+float32 DEFAULT_HEARTBEAT_TIMEOUT = 4.0
+float32 DEFAULT_DISCONNECT_TIMEOUT = 2.0
+float32 DEFAULT_HEARTBEAT_PERIOD = 1.0
+
+string DISABLE_HEARTBEAT_TIMEOUT_PARAM=/bond_disable_heartbeat_timeout
+"#;
+        let msg = parse_message(input).unwrap();
+        assert_eq!(msg.constants.len(), 6);
+
+        // Check the problematic string constant
+        let string_const = msg
+            .constants
+            .iter()
+            .find(|c| c.name == "DISABLE_HEARTBEAT_TIMEOUT_PARAM")
+            .unwrap();
+        assert!(matches!(
+            &string_const.value,
+            ConstantValue::String(s) if s == "/bond_disable_heartbeat_timeout"
         ));
     }
 }
