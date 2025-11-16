@@ -1,282 +1,264 @@
-# colcon-cargo-ros2: All-in-One ROS 2 Rust Build Tools
+# colcon-cargo-ros2
 
-**A unified repository containing:**
-- **Rust Workspace**: 4 crates for ROS 2 Rust binding generation (`cargo-ros2-bindgen`, `rosidl-parser`, `rosidl-codegen`, `rosidl-runtime-rs`)
-- **Python Package**: `colcon-cargo-ros2` colcon extension for seamless workspace integration
+**Build Rust ROS 2 packages with automatic message binding generation.**
 
-Build Rust ROS 2 projects with automatic message binding generation, intelligent caching, and ament-compatible installation.
-
-## Repository Structure
-
-```
-colcon-cargo-ros2/  (Standalone Hybrid Repository)
-├── Cargo.toml                    # Rust workspace manifest
-├── cargo-ros2-bindgen/           # Main binding generator CLI
-├── rosidl-parser/                # ROS IDL parser
-├── rosidl-codegen/               # Code generator with Askama templates
-├── rosidl-runtime-rs/            # Shared runtime library with FFI bindings
-│
-├── colcon-cargo-ros2/            # Python package subdirectory
-│   ├── colcon_cargo_ros2/        # Python module
-│   ├── test/                     # Python tests
-│   └── setup.py, setup.cfg       # Python package config
-│
-└── justfile                      # Build automation (Rust + Python)
-```
-
-## Installation
-
-### Prerequisites
-
-- Rust toolchain (stable)
-- Python 3.8+ with pip
-- ROS 2 (Humble, Iron, or Jazzy)
-- colcon (for workspace builds)
-
-### Install Both Components
-
-```bash
-# Install Rust binaries and Python package
-just install
-
-# Or install manually:
-cargo install --path cargo-ros2-bindgen
-pip3 install -e colcon-cargo-ros2/ --break-system-packages
-```
-
-### Install Individual Components
-
-```bash
-# Rust only
-cargo install --path cargo-ros2-bindgen
-
-# Python only
-pip3 install -e colcon-cargo-ros2/ --break-system-packages
-```
-
-## Usage
-
-### As a Colcon Extension
-
-Packages need a `package.xml` in addition to `Cargo.toml`. You should see such packages classified as `ament_cargo` in the output of `colcon list`.
-
-Simply list dependencies (other `ament_cargo` packages or message packages) in `Cargo.toml` and `package.xml` as if they were hosted on crates.io. The extension will:
-- Discover ROS dependencies via ament_index
-- Generate Rust bindings automatically
-- Cache generated bindings for fast rebuilds
-- Create `.cargo/config.toml` with proper patches
-- Install to ament-compatible locations
-
-```bash
-# In a colcon workspace
-colcon build --symlink-install
-
-# Pass extra cargo arguments
-colcon build --cargo-args --release
-
-# After building, run binaries
-ros2 run my_package my_binary
-```
-
-### As a Standalone Tool
-
-You can use `cargo-ros2-bindgen` directly for binding generation:
-
-```bash
-# Generate bindings for a single package
-cargo-ros2-bindgen --package std_msgs --output target/ros2_bindings
-
-# With verbose output
-cargo-ros2-bindgen --package geometry_msgs --output ./bindings --verbose
-
-# Using direct path (bypasses ament index)
-cargo-ros2-bindgen --package my_msgs --output ./out --package-path /path/to/share
-```
+`colcon-cargo-ros2` is a colcon extension that enables seamless integration of Rust packages in ROS 2 workspaces. It automatically generates Rust bindings for ROS message types, manages dependencies, and installs packages in ament-compatible layout.
 
 ## Features
 
-- **Automatic Binding Generation**: Generates Rust bindings for all ROS message/service/action types on-demand
+- **Automatic Binding Generation**: Generates Rust bindings for messages, services, and actions on-demand
 - **Smart Caching**: SHA256-based checksums for fast incremental builds
-- **Workspace-Level Bindings**: In colcon workspaces, bindings are generated once and shared across all packages
-- **Shared Runtime Library**: `rosidl_runtime_rs` provides FFI bindings and idiomatic Rust wrappers
-- **Parallel Generation**: Multiple packages generate bindings in parallel using rayon
+- **Workspace-Level Bindings**: Bindings generated once and shared across all packages
+- **Zero Configuration**: Just add dependencies to `Cargo.toml` - bindings are handled automatically
 - **Ament Compatible**: Installs to standard ament locations for seamless ROS 2 integration
-- **Progress Indicators**: Beautiful progress bars show generation and build status
 
-## Development
+## Installation
 
-### Quick Start
+### From PyPI (Recommended)
 
 ```bash
-# Build Rust workspace
-just build
-
-# Run all tests
-just test
-
-# Format and lint
-just format
-just check
-
-# Run full quality checks
-just quality
-
-# Note: Python packages don't need building for development.
-# Use 'just install-python' to install in development mode.
-# Use 'just build-python' only if you need distribution packages (requires 'python3 -m pip install build')
+pip install colcon-cargo-ros2
 ```
 
-### Rust Development
+### From Source
 
 ```bash
-# Build all Rust crates
-cargo build --workspace
-# or
-just build-rust
-
-# Run tests
-cargo test --workspace
-# or
-just test-rust
-
-# Lint
-cargo clippy --workspace -- -D warnings
-# or
-just check-rust
-
-# Format
-cargo +nightly fmt
-# or
-just format-rust
+git clone https://github.com/jerry73204/colcon-cargo-ros2.git
+cd colcon-cargo-ros2
+pip install packages/colcon-cargo-ros2/
 ```
 
-### Python Development
+## Quick Start
+
+### 1. Create a ROS 2 Workspace
 
 ```bash
-# Install in development mode
-pip3 install -e colcon-cargo-ros2/ --break-system-packages
-# or
-just install-python
-
-# Run tests
-pytest colcon-cargo-ros2/test/
-# or
-just test-python
-
-# Lint
-ruff check colcon-cargo-ros2/colcon_cargo_ros2/ colcon-cargo-ros2/test/
-# or
-just check-python
-
-# Format
-ruff format colcon-cargo-ros2/colcon_cargo_ros2/ colcon-cargo-ros2/test/
-# or
-just format-python
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws
 ```
 
-### Testing Changes
-
-After modifying templates or code:
+### 2. Create a Rust ROS 2 Package
 
 ```bash
-# Required after template changes
-cargo clean && just install
+cd src
+cargo new --bin my_robot_node
+cd my_robot_node
+```
 
-# Test in a workspace
-cd testing_workspaces/complex_workspace
-rm -rf build install log
+### 3. Add ROS Dependencies
+
+**Cargo.toml**:
+```toml
+[package]
+name = "my_robot_node"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rclrs = "0.6"
+std_msgs = "*"
+geometry_msgs = "*"
+```
+
+**package.xml**:
+```xml
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>my_robot_node</name>
+  <version>0.1.0</version>
+  <description>Example Rust ROS 2 node</description>
+  <maintainer email="you@example.com">Your Name</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclrs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+
+  <export>
+    <build_type>ament_cargo</build_type>
+  </export>
+</package>
+```
+
+**src/main.rs**:
+```rust
+use rclrs::{Context, Node, RclrsError};
+use std_msgs::msg::String as StringMsg;
+
+fn main() -> Result<(), RclrsError> {
+    let context = Context::new(std::env::args())?;
+    let node = Node::new(&context, "my_robot_node")?;
+
+    let publisher = node.create_publisher::<StringMsg>("chatter", 10)?;
+
+    let mut count = 0;
+    loop {
+        let mut msg = StringMsg::default();
+        msg.data = format!("Hello from Rust! {}", count);
+        publisher.publish(msg)?;
+
+        println!("Published: {}", count);
+        count += 1;
+
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+```
+
+### 4. Build with colcon
+
+```bash
+cd ~/ros2_ws
+source /opt/ros/jazzy/setup.bash  # Or your ROS 2 distro
 colcon build --symlink-install
 ```
 
-## Documentation
+The extension will:
+1. Discover ROS dependencies from `Cargo.toml` and `package.xml`
+2. Generate Rust bindings for `std_msgs` and `geometry_msgs`
+3. Build your Rust package with cargo
+4. Install binaries to `install/my_robot_node/lib/my_robot_node/`
 
-- **CLAUDE.md** - Project instructions and architecture overview
-- **docs/ARCH.md** - Detailed architecture documentation
-- **docs/DESIGN.md** - Implementation details
-- **docs/ROADMAP.md** - Development roadmap
+### 5. Run Your Node
 
-## Architecture Highlights
+```bash
+source install/setup.bash
+ros2 run my_robot_node my_robot_node
+```
 
-### Two-Tool Design
+## Package Structure
 
-1. **`cargo-ros2-bindgen`** - Low-level binding generator
-   - Generates Rust bindings for a single ROS interface package
-   - Can be used standalone
-   - Pure Rust implementation with native IDL parser
+For `colcon-cargo-ros2` to recognize your package:
+- **Both files required**: `package.xml` AND `Cargo.toml` in the package root
+- **Build type**: `package.xml` must specify `<build_type>ament_cargo</build_type>` in the `<export>` section
+- **Dependencies**: List ROS dependencies in both `Cargo.toml` and `package.xml`
 
-2. **`colcon-cargo-ros2`** - High-level colcon integration
-   - Wraps `cargo-ros2-bindgen` for workspace builds
-   - Manages workspace-level binding cache
-   - Handles ament-compatible installation
+Verify packages are detected:
+```bash
+$ colcon list
+my_robot_node   src/my_robot_node   (ament_cargo)
+```
+
+## Building
+
+### Basic Commands
+
+```bash
+# Build all packages
+colcon build
+
+# Build specific package
+colcon build --packages-select my_robot_node
+
+# Build with release optimizations
+colcon build --cargo-args --release
+
+# Verbose output
+colcon build --event-handlers console_direct+
+```
+
+### Using Custom Interfaces
+
+Custom interface packages follow the standard ROS 2 procedure (CMake-based with `rosidl_generate_interfaces`). Simply add them as dependencies in your Rust package's `Cargo.toml`:
+
+```toml
+[dependencies]
+my_custom_interfaces = "*"
+```
+
+Bindings will be generated automatically during the build.
+
+## How It Works
 
 ### Workspace-Level Binding Generation
 
-In colcon workspaces, bindings are generated once at the workspace level:
+When building a colcon workspace, `colcon-cargo-ros2`:
 
+1. **Discovers Packages**: Finds all ROS dependencies via ament index
+2. **Generates Bindings**: Creates Rust bindings in `build/ros2_bindings/`
+3. **Configures Cargo**: Updates each package's `.cargo/config.toml` with patches
+4. **Builds**: Runs `cargo build` with workspace-level config
+5. **Installs**: Copies binaries and creates ament markers
+
+**Workspace Structure**:
 ```
-workspace/
+ros2_ws/
 ├── build/
-│   ├── ros2_bindings/            # Generated once, shared by all packages
-│   │   ├── std_msgs/
-│   │   ├── geometry_msgs/
-│   │   └── custom_interfaces/
-├── src/
-│   ├── robot_controller/
-│   │   └── .cargo/config.toml    # Points to ../../build/ros2_bindings/
-│   └── robot_driver/
-│       └── .cargo/config.toml    # Also points to ../../build/ros2_bindings/
+│   └── ros2_bindings/          # Shared bindings (generated once)
+│       ├── std_msgs/
+│       ├── geometry_msgs/
+│       └── my_interfaces/
+├── install/
+│   ├── my_robot_node/
+│   │   ├── lib/my_robot_node/  # Binaries
+│   │   └── share/              # Metadata
+│   └── my_interfaces/
+└── src/
+    ├── my_robot_node/
+    │   ├── Cargo.toml
+    │   ├── package.xml
+    │   └── .cargo/config.toml  # Auto-generated patches
+    └── my_interfaces/
 ```
 
-**Benefits:**
-- No duplication of generated code
-- Faster builds
-- Smaller disk usage
-- Follows ROS conventions
+### Benefits
 
-### Shared Runtime Library
+- **No Duplication**: `std_msgs` generated once, not per-package
+- **Fast Builds**: Intelligent caching skips regeneration when possible
+- **Clean Workspace**: `colcon clean` removes all generated code
+- **Standard Cargo**: Normal Cargo workflows work as expected
 
-`rosidl_runtime_rs` provides:
-- FFI bindings to `rosidl_runtime_c`
-- Idiomatic Rust wrappers for strings and sequences
-- Core traits for messages, services, and actions
-- Automatic memory management
+## Troubleshooting
 
-This eliminates 100+ lines of duplicated code per generated package.
+### "Package not found in ament index"
 
-## Limitations
+Make sure the ROS 2 environment is sourced:
+```bash
+source /opt/ros/jazzy/setup.bash
+```
 
-- `colcon test` is not yet fully supported (use `cargo test` directly)
-- The quadratic build cost issue (Cargo rebuilding dependencies) is mitigated but not eliminated
+### "error: failed to select a version"
 
-## Contributing
+This usually means bindings weren't generated. Try:
+```bash
+# Clean and rebuild
+rm -rf build install
+colcon build
+```
 
-### Code Quality Standards
+### Build fails with linking errors
 
-- Run `just quality` before submitting changes
-- All clippy warnings must be fixed (`-D warnings`)
-- Code must be formatted with `cargo +nightly fmt`
-- Python code must pass `ruff check` and `ruff format`
-- All tests must pass
+Ensure all dependencies are listed in both `Cargo.toml` and `package.xml`:
+```xml
+<depend>std_msgs</depend>
+<depend>geometry_msgs</depend>
+```
 
-### Development Guidelines
+## Requirements
 
-1. **File Operations**: Always use Write/Edit tools, never bash commands (`cat`, `echo`, etc.)
-2. **Temporary Files**: Create in `tmp/` directory
-3. **Documentation**: Update CLAUDE.md and docs/ when changing architecture
-4. **Testing**: Add tests for new features, ensure existing tests pass
+- **Python**: 3.8 or later
+- **ROS 2**: Humble, Iron, or Jazzy
+- **Rust**: 1.70 or later (stable toolchain)
+- **colcon**: Latest version
 
 ## License
 
-MIT OR Apache-2.0 (compatible with ROS 2 ecosystem)
+Apache-2.0 (compatible with ROS 2 ecosystem)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture details, and guidelines.
 
 ## Related Projects
 
-- **ros2_rust**: Current official Rust bindings (workspace-based approach)
-- **r2r**: Alternative bindings (build.rs generation)
-- **cargo-ament-build**: Ament layout installer (functionality being absorbed)
+- [ros2_rust](https://github.com/ros2-rust/ros2_rust) - Official Rust bindings for ROS 2
+- [r2r](https://github.com/sequenceplanner/r2r) - Alternative Rust bindings
+- [colcon](https://colcon.readthedocs.io) - Build tool for ROS 2
 
----
+## Support
 
-**Status**: Phase 3 Near Complete - Production Features (2025-11-07)
-**Progress**: 14/20 subphases (70%) | 190+ tests passing | Zero warnings
-**Latest**: Shared rosidl_runtime_rs ✅, Workspace-aware linking ✅, colcon integration fixed ✅
+- **Issues**: [GitHub Issues](https://github.com/jerry73204/colcon-cargo-ros2/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/jerry73204/colcon-cargo-ros2/discussions)
