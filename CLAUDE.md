@@ -271,6 +271,84 @@ cargo ros2 build
 5. **Incremental**: Smart caching avoids regeneration (checksum-based)
 6. **colcon-Friendly**: Drop-in replacement for current cargo invocations
 
+## Recent Architectural Improvements (2025-11-17)
+
+### WString Array/Sequence Support and Linting Migration (2025-11-17)
+
+**Problem 1**: Wide string (WString) arrays and sequences were not properly handled in template generation, causing type mismatches:
+```rust
+error[E0308]: mismatched types
+expected `[WString; 3]`, found `[String; 3]`
+```
+
+**Solution**: Added complete WString support across all idiomatic templates:
+- Added detection functions: `is_unbounded_wstring_array()`, `is_bounded_wstring_array()`, `is_unbounded_wstring_sequence()`, `is_bounded_wstring_sequence()`
+- Updated all three idiomatic templates (message, service, action) with proper WString conversions
+- Proper ordering: String arrays → WString arrays → Primitive arrays → Message arrays
+
+**Files Modified**:
+- `packages/rosidl-codegen/src/types.rs`: Added WString detection functions
+- `packages/rosidl-codegen/src/generator.rs`: Added imports and template properties
+- `packages/rosidl-codegen/src/templates.rs`: Added field properties
+- `packages/rosidl-codegen/templates/message_idiomatic.rs.jinja`: Added WString array/sequence handling
+- `packages/rosidl-codegen/templates/service_idiomatic.rs.jinja`: Added WString array/sequence handling
+- `packages/rosidl-codegen/templates/action_idiomatic.rs.jinja`: Added WString array/sequence handling
+
+---
+
+**Problem 2**: Flake8 linter had plugin dependency issues with matplotlib in the environment:
+```
+flake8.exceptions.FailedToLoadPlugin: Flake8 failed to load plugin "flake8-import-order"
+```
+
+**Solution**: Migrated from flake8 to ruff linter:
+- Ruff is 10-100x faster (written in Rust)
+- No plugin dependency issues
+- Auto-fix capabilities
+- Better integration with modern Python tooling
+
+**Files Modified**:
+- `packages/colcon-cargo-ros2/test/test_flake8.py` → `test_ruff.py`: Complete rewrite to use ruff
+- `packages/colcon-cargo-ros2/ruff.toml`: Created new configuration file
+- `packages/colcon-cargo-ros2/colcon_cargo_ros2/workspace_bindgen.py`: Fixed line length violations
+
+---
+
+**Problem 3**: `--cargo-args` flag was not recognized by colcon build, preventing users from passing arguments like `--release` or `--profile dev-release` to Cargo.
+
+**Root Cause**: The `add_arguments()` method had an incorrect comment claiming `--cargo-args` was "already defined by colcon core", but this wasn't true. The method was empty, so the argument was never registered.
+
+**Solution**: Added `--cargo-args` argument definition following the same pattern as CMake's `--cmake-args`:
+```python
+def add_arguments(self, *, parser):
+    parser.add_argument(
+        "--cargo-args",
+        nargs="*",
+        metavar="*",
+        type=str.lstrip,
+        help="Pass arguments to Cargo. "
+        "Arguments matching other options must be prefixed by a space,\n"
+        'e.g. --cargo-args " --help"',
+    )
+```
+
+**Files Modified**:
+- `packages/colcon-cargo-ros2/colcon_cargo_ros2/task/ament_cargo/build.py`: Added argument definition
+
+**Usage**:
+```bash
+colcon build --cargo-args --release
+colcon build --cargo-args --profile dev-release
+colcon build --cargo-args --target x86_64-unknown-linux-gnu
+```
+
+**Verification**:
+- ✅ Tested with autoware_carla_bridge workspace (118 packages)
+- ✅ `--profile dev-release` correctly builds with optimized + debuginfo profile
+- ✅ Implementation matches colcon-cargo's approach exactly
+
+---
+
 ## Recent Architectural Improvements (2025-11-14)
 
 ### Constant Type Fix and Colcon Package Discovery (2025-11-14)
@@ -832,9 +910,12 @@ MIT OR Apache-2.0 (to be decided - compatible with ROS 2 ecosystem)
 
 ---
 
-**Status**: v0.2.0 Released - PyPI Ready! (2025-11-16)
-**Progress**: 14/20 subphases (70%) | 190+ tests passing | Zero warnings
-**Latest**: GitHub Actions CI ✅, Multi-platform wheel builds ✅, PyPI publishing workflow ✅
+**Status**: v0.3.1 Released (2025-11-17)
+**Progress**: 15/20 subphases (75%) | 199 tests passing (196 Rust + 3 Python) | Zero warnings
+**Latest**: WString support ✅, `--cargo-args` support ✅, Ruff linter migration ✅, Tested with autoware_carla_bridge (118 packages) ✅
+**Versions**:
+- Rust workspace: v0.2.0 (rosidl-parser, rosidl-codegen, rosidl-bindgen, cargo-ros2)
+- Python package: v0.3.1 (colcon-cargo-ros2)
 **PyPI**: 31 artifacts (30 wheels + sdist) for Linux/macOS/Windows × Python 3.8-3.13
 **Architecture**: Two independent workspaces (user-libs + build-tools), workspace-level binding generation via colcon's package discovery, complete colcon integration
-**Next**: Phase 3.4 - Enhanced Testing & Documentation, community feedback on v0.2.0 release
+**Next**: Phase 3.4 - Enhanced Testing & Documentation, community feedback
