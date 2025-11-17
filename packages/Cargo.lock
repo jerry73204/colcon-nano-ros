@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-ros2"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cargo_metadata",
  "clap",
@@ -1074,7 +1074,7 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "rosidl-bindgen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "askama",
  "clap",
@@ -1088,7 +1088,7 @@ dependencies = [
 
 [[package]]
 name = "rosidl-codegen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "askama",
  "criterion",
@@ -1102,7 +1102,7 @@ dependencies = [
 
 [[package]]
 name = "rosidl-parser"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chumsky",
  "logos",
