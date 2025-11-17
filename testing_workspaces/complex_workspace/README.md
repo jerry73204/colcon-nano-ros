@@ -15,6 +15,24 @@ Complex colcon workspace demonstrating cargo-ros2 with **standard ROS messages a
    source /opt/ros/jazzy/setup.bash  # or your ROS distro
    ```
 
+3. Install test dependencies:
+   ```bash
+   # Option 1: Use rosdep (recommended)
+   rosdep install --from-paths src --ignore-src -r -y
+
+   # Option 2: Manual installation
+   sudo apt install -y \
+     ros-humble-test-msgs \
+     ros-humble-moveit-msgs \
+     ros-humble-control-msgs \
+     ros-humble-nav2-msgs \
+     ros-humble-tf2-msgs \
+     ros-humble-trajectory-msgs \
+     ros-humble-diagnostic-msgs \
+     ros-humble-composition-interfaces \
+     ros-humble-rosbag2-interfaces
+   ```
+
 ## Packages
 
 - **robot_interfaces**: Custom messages, services, and actions (ament_cmake)
@@ -50,12 +68,27 @@ just build-rust
 ✓ Custom services (SetMode)
 ✓ Custom actions (Navigate)
 
+### Enhanced Test Coverage (NEW)
+✓ **Parser edge cases** (test_msgs): Bounded sequences/strings, wide strings, constants, defaults, deep nesting
+✓ **Motion planning** (moveit_msgs): Complex nested trajectories, collision objects, planning scenes
+✓ **Robot control** (control_msgs): Controller states, PID values, multi-DOF states, gripper control
+✓ **Navigation** (nav2_msgs): 2D/3D grids, costmaps, particle filters, behavior trees
+✓ **Trajectories** (trajectory_msgs): Joint trajectories, multi-DOF trajectories, waypoints
+✓ **Diagnostics** (diagnostic_msgs): System health, key-value pairs, diagnostic arrays
+✓ **Transforms** (tf2_msgs): Transform hierarchies, time-stamped data
+✓ **Advanced services**: Multi-package dependencies, complex request/response
+✓ **Advanced actions**: Complex goal/result/feedback patterns with real-time updates
+
 ### Integration Features
 ✓ cargo-ros2 automatic binding generation
 ✓ colcon-ros-cargo integration
 ✓ Multi-package dependency resolution
 ✓ Ament installation layout
 ✓ Caching and incremental builds
+
+---
+
+**📖 For detailed test coverage documentation, see [TEST_COVERAGE.md](TEST_COVERAGE.md)**
 
 ## Expected Workflow
 

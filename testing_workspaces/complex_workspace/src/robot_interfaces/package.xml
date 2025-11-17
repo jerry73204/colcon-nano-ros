@@ -11,6 +11,20 @@
 
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <!-- Core test packages for parser edge cases -->
+  <depend>test_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>nav2_msgs</depend>
+
+  <!-- Comprehensive coverage packages -->
+  <depend>tf2_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>composition_interfaces</depend>
+  <depend>rosbag2_interfaces</depend>
 
   <member_of_group>rosidl_interface_packages</member_of_group>
 

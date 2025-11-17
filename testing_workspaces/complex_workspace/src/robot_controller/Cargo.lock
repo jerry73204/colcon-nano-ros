@@ -25,9 +25,94 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "control_msgs"
+version = "0.5.0"
+dependencies = [
+ "action_msgs",
+ "builtin_interfaces",
+ "geometry_msgs",
+ "rosidl_runtime_rs",
+ "sensor_msgs",
+ "std_msgs",
+ "trajectory_msgs",
+ "unique_identifier_msgs",
+]
+
+[[package]]
+name = "diagnostic_msgs"
+version = "0.5.0"
+dependencies = [
+ "rosidl_runtime_rs",
+ "std_msgs",
+]
+
+[[package]]
 name = "geometry_msgs"
 version = "0.5.0"
 dependencies = [
+ "rosidl_runtime_rs",
+ "std_msgs",
+]
+
+[[package]]
+name = "moveit_msgs"
+version = "0.5.0"
+dependencies = [
+ "action_msgs",
+ "builtin_interfaces",
+ "geometry_msgs",
+ "object_recognition_msgs",
+ "octomap_msgs",
+ "rosidl_runtime_rs",
+ "sensor_msgs",
+ "shape_msgs",
+ "std_msgs",
+ "trajectory_msgs",
+ "unique_identifier_msgs",
+]
+
+[[package]]
+name = "nav2_msgs"
+version = "0.5.0"
+dependencies = [
+ "action_msgs",
+ "builtin_interfaces",
+ "geometry_msgs",
+ "nav_msgs",
+ "rosidl_runtime_rs",
+ "std_msgs",
+ "unique_identifier_msgs",
+]
+
+[[package]]
+name = "nav_msgs"
+version = "0.5.0"
+dependencies = [
+ "builtin_interfaces",
+ "geometry_msgs",
+ "rosidl_runtime_rs",
+ "std_msgs",
+]
+
+[[package]]
+name = "object_recognition_msgs"
+version = "0.5.0"
+dependencies = [
+ "action_msgs",
+ "builtin_interfaces",
+ "geometry_msgs",
+ "rosidl_runtime_rs",
+ "sensor_msgs",
+ "shape_msgs",
+ "std_msgs",
+ "unique_identifier_msgs",
+]
+
+[[package]]
+name = "octomap_msgs"
+version = "0.5.0"
+dependencies = [
+ "geometry_msgs",
  "rosidl_runtime_rs",
  "std_msgs",
 ]
@@ -49,9 +134,15 @@ version = "0.5.0"
 dependencies = [
  "action_msgs",
  "builtin_interfaces",
+ "control_msgs",
+ "diagnostic_msgs",
  "geometry_msgs",
+ "moveit_msgs",
+ "nav2_msgs",
  "rosidl_runtime_rs",
  "std_msgs",
+ "test_msgs",
+ "trajectory_msgs",
  "unique_identifier_msgs",
 ]
 
@@ -75,11 +166,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "shape_msgs"
+version = "0.5.0"
+dependencies = [
+ "geometry_msgs",
+ "rosidl_runtime_rs",
+]
+
+[[package]]
 name = "std_msgs"
 version = "0.5.0"
 dependencies = [
  "builtin_interfaces",
  "rosidl_runtime_rs",
+]
+
+[[package]]
+name = "test_msgs"
+version = "0.5.0"
+dependencies = [
+ "action_msgs",
+ "builtin_interfaces",
+ "rosidl_runtime_rs",
+ "unique_identifier_msgs",
+]
+
+[[package]]
+name = "trajectory_msgs"
+version = "0.5.0"
+dependencies = [
+ "builtin_interfaces",
+ "geometry_msgs",
+ "rosidl_runtime_rs",
+ "std_msgs",
 ]
 
 [[package]]
@@ -102,11 +221,23 @@ name = "actuator_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
+name = "bond"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "can_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "cob_srvs"
+version = "0.5.0"
+
+[[patch.unused]]
 name = "composition_interfaces"
 version = "0.5.0"
 
 [[patch.unused]]
-name = "diagnostic_msgs"
+name = "data_tamer_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -114,7 +245,19 @@ name = "example_interfaces"
 version = "0.5.0"
 
 [[patch.unused]]
+name = "ffmpeg_image_transport_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "geographic_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
 name = "gps_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "grid_map_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -130,7 +273,15 @@ name = "map_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
-name = "nav_msgs"
+name = "nmea_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "pacmod2_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "pacmod3_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -142,6 +293,18 @@ name = "pendulum_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
+name = "plotjuggler_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "point_cloud_interfaces"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "radar_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
 name = "rcl_interfaces"
 version = "0.5.0"
 
@@ -150,7 +313,19 @@ name = "rmw_dds_common"
 version = "0.5.0"
 
 [[patch.unused]]
+name = "robot_localization"
+version = "0.5.0"
+
+[[patch.unused]]
 name = "ros_gz_interfaces"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "ros_ign_interfaces"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "rosapi_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -158,15 +333,15 @@ name = "rosbag2_interfaces"
 version = "0.5.0"
 
 [[patch.unused]]
+name = "rosbridge_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
 name = "rosgraph_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
-name = "service_msgs"
-version = "0.5.0"
-
-[[patch.unused]]
-name = "shape_msgs"
+name = "septentrio_gnss_driver"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -182,10 +357,6 @@ name = "stereo_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
-name = "test_msgs"
-version = "0.5.0"
-
-[[patch.unused]]
 name = "tf2_msgs"
 version = "0.5.0"
 
@@ -194,7 +365,7 @@ name = "theora_image_transport"
 version = "0.5.0"
 
 [[patch.unused]]
-name = "trajectory_msgs"
+name = "topic_tools_interfaces"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -202,7 +373,15 @@ name = "turtlesim"
 version = "0.5.0"
 
 [[patch.unused]]
-name = "type_description_interfaces"
+name = "ublox_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "udp_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "velodyne_msgs"
 version = "0.5.0"
 
 [[patch.unused]]
@@ -211,4 +390,8 @@ version = "0.5.0"
 
 [[patch.unused]]
 name = "visualization_msgs"
+version = "0.5.0"
+
+[[patch.unused]]
+name = "zed_msgs"
 version = "0.5.0"
