@@ -1,19 +1,17 @@
 # Licensed under the Apache License, Version 2.0
 
-from pathlib import Path
 import os
+from pathlib import Path
 
-from colcon_core.environment import create_environment_hooks
-from colcon_core.environment import create_environment_scripts
+from colcon_core.environment import create_environment_hooks, create_environment_scripts
 from colcon_core.logging import colcon_logger
 from colcon_core.plugin_system import satisfies_version
 from colcon_core.shell import create_environment_hook
 from colcon_core.task import TaskExtensionPoint, run
 
-from colcon_cargo_ros2.workspace_bindgen import generate_workspace_bindings
-
 # Import Rust library directly via PyO3 bindings
 from colcon_cargo_ros2 import cargo_ros2_py
+from colcon_cargo_ros2.workspace_bindgen import generate_workspace_bindings
 
 logger = colcon_logger.getChild(__name__)
 
@@ -105,9 +103,7 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         # All other packages will see the lock and skip generation
         try:
             verbose = getattr(args, "verbose", False)
-            generate_workspace_bindings(
-                workspace_root, build_base, install_base, args, verbose
-            )
+            generate_workspace_bindings(workspace_root, build_base, install_base, args, verbose)
         except Exception as e:
             logger.error(f"Workspace binding generation failed: {e}")
             import traceback

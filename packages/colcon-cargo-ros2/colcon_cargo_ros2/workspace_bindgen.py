@@ -27,9 +27,7 @@ logger = colcon_logger.getChild(__name__)
 class WorkspaceBindingGenerator:
     """Generates ROS 2 Rust bindings for an entire colcon workspace."""
 
-    def __init__(
-        self, workspace_root: Path, build_base: Path, install_base: Path, args
-    ):
+    def __init__(self, workspace_root: Path, build_base: Path, install_base: Path, args):
         """Initialize the workspace binding generator.
 
         Args:
@@ -93,9 +91,8 @@ class WorkspaceBindingGenerator:
         from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
 
         interface_packages = getattr(RustBindingAugmentation, "_interface_packages", {})
-        logger.info(
-            f"Colcon discovered {len(interface_packages)} interface packages: {list(interface_packages.keys())}"
-        )
+        pkg_names = list(interface_packages.keys())
+        logger.info(f"Colcon discovered {len(interface_packages)} interface packages: {pkg_names}")
         for pkg_name, pkg_path in interface_packages.items():
             # Use source directory directly for workspace packages
             packages[pkg_name] = pkg_path
@@ -187,9 +184,7 @@ class WorkspaceBindingGenerator:
                 # Log warning for packages that can't be generated (e.g., unsupported IDL features)
                 logger.warning(f"Skipping {pkg_name}: {e}")
 
-    def _run_bindgen(
-        self, pkg_name: str, pkg_share: Path, output_dir: Path, verbose: bool
-    ):
+    def _run_bindgen(self, pkg_name: str, pkg_share: Path, output_dir: Path, verbose: bool):
         """Generate Rust bindings for a single package using direct API call.
 
         Args:
@@ -235,9 +230,7 @@ class WorkspaceBindingGenerator:
             cargo_toml = binding_dir / "Cargo.toml"
             if not cargo_toml.exists():
                 # This is expected for packages without interfaces (msg/srv/action)
-                logger.debug(
-                    f"No Cargo.toml found for {pkg_name} (package has no interfaces)"
-                )
+                logger.debug(f"No Cargo.toml found for {pkg_name} (package has no interfaces)")
                 return
 
         # Read the Cargo.toml
@@ -297,21 +290,15 @@ class WorkspaceBindingGenerator:
                 nested_pkg_dir = binding_dir / pkg_name
                 if nested_pkg_dir.exists() and (nested_pkg_dir / "Cargo.toml").exists():
                     # Use the nested package directory
-                    patches.append(
-                        f'{pkg_name} = {{ path = "{nested_pkg_dir.absolute()}" }}'
-                    )
+                    patches.append(f'{pkg_name} = {{ path = "{nested_pkg_dir.absolute()}" }}')
                 elif (binding_dir / "Cargo.toml").exists():
                     # Use the top-level directory if Cargo.toml is there
-                    patches.append(
-                        f'{pkg_name} = {{ path = "{binding_dir.absolute()}" }}'
-                    )
+                    patches.append(f'{pkg_name} = {{ path = "{binding_dir.absolute()}" }}')
 
         # Add patches for embedded runtime libraries
         runtime_rs_dir = self.bindings_dir / "rosidl_runtime_rs"
         if runtime_rs_dir.exists() and (runtime_rs_dir / "Cargo.toml").exists():
-            patches.append(
-                f'rosidl_runtime_rs = {{ path = "{runtime_rs_dir.absolute()}" }}'
-            )
+            patches.append(f'rosidl_runtime_rs = {{ path = "{runtime_rs_dir.absolute()}" }}')
 
         rclrs_dir = self.bindings_dir / "rclrs"
         if rclrs_dir.exists() and (rclrs_dir / "Cargo.toml").exists():
@@ -342,9 +329,7 @@ def generate_workspace_bindings(
         args: Colcon command line arguments
         verbose: Enable verbose output
     """
-    generator = WorkspaceBindingGenerator(
-        workspace_root, build_base, install_base, args
-    )
+    generator = WorkspaceBindingGenerator(workspace_root, build_base, install_base, args)
 
     # Only generate if we're the first process to get the lock
     if generator.should_generate():

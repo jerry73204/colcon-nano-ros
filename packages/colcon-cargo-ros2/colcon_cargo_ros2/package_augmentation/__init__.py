@@ -1,9 +1,10 @@
 # Licensed under the Apache License, Version 2.0
 
+from pathlib import Path
+
+from colcon_core.logging import colcon_logger
 from colcon_core.package_augmentation import PackageAugmentationExtensionPoint
 from colcon_core.plugin_system import satisfies_version
-from colcon_core.logging import colcon_logger
-from pathlib import Path
 
 logger = colcon_logger.getChild(__name__)
 
@@ -23,9 +24,7 @@ class RustBindingAugmentation(PackageAugmentationExtensionPoint):
     def __init__(self):
         """Initialize the RustBindingAugmentation extension."""
         super().__init__()
-        satisfies_version(
-            PackageAugmentationExtensionPoint.EXTENSION_POINT_VERSION, "^1.0"
-        )
+        satisfies_version(PackageAugmentationExtensionPoint.EXTENSION_POINT_VERSION, "^1.0")
         self._bindings_generated = False
 
     def augment_packages(self, descs, *, additional_argument_names=None):
@@ -61,9 +60,7 @@ class RustBindingAugmentation(PackageAugmentationExtensionPoint):
             logger.debug("No interface packages found in workspace")
             return
 
-        logger.info(
-            f"Discovered {len(interface_packages)} interface packages via colcon"
-        )
+        logger.info(f"Discovered {len(interface_packages)} interface packages via colcon")
 
         # Store interface packages in generator for use during build phase
         # The first build task will trigger actual binding generation

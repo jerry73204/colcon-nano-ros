@@ -42,9 +42,7 @@ def test_package_identification():
     assert desc.name == TEST_PACKAGE_NAME
 
 
-@pytest.mark.skipif(
-    not shutil.which("cargo"), reason="Rust must be installed to run this test"
-)
+@pytest.mark.skipif(not shutil.which("cargo"), reason="Rust must be installed to run this test")
 def test_build_and_test_package():
     event_loop = new_event_loop()
     asyncio.set_event_loop(event_loop)
