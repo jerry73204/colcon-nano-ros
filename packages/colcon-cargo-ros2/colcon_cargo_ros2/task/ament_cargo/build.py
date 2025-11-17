@@ -42,8 +42,15 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         self._build_base = None  # Will be set during workspace binding generation
 
     def add_arguments(self, *, parser):  # noqa: D102
-        # Note: --cargo-args is already defined by colcon core, so we don't redefine it
-        pass
+        parser.add_argument(
+            "--cargo-args",
+            nargs="*",
+            metavar="*",
+            type=str.lstrip,
+            help="Pass arguments to Cargo. "
+            "Arguments matching other options must be prefixed by a space,\n"
+            'e.g. --cargo-args " --help"',
+        )
 
     async def build(self, *, additional_hooks=None):  # noqa: D102
         """Build the Rust ROS 2 package using workspace-level binding generation."""
