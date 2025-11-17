@@ -349,6 +349,86 @@ colcon build --cargo-args --target x86_64-unknown-linux-gnu
 
 ---
 
+### `[package.metadata.ros]` Installation Support (2025-11-17)
+
+**Problem**: Rust ROS 2 packages often need to install additional files beyond binaries (launch files, config files, URDF models, RViz configs, etc.), but there was no way to specify these in Cargo.toml.
+
+**Solution**: Implemented `[package.metadata.ros]` support for installing additional files and directories, providing 100% backward compatibility with cargo-ament-build:
+
+```toml
+[package.metadata.ros]
+install_to_share = ["launch", "config", "README.md"]  # Directories and files
+install_to_include = ["include", "mylib.h"]
+install_to_lib = ["scripts", "setup.sh"]
+```
+
+**Semantics**:
+- **Directories**: Copied recursively with name preserved
+  - `"launch"` → `install/<pkg>/share/<pkg>/launch/`
+- **Individual files**: Filename preserved (parent path dropped)
+  - `"README.md"` → `install/<pkg>/share/<pkg>/README.md`
+  - `"config/params.yaml"` → `install/<pkg>/share/<pkg>/params.yaml`
+- **Missing paths**: Build fails with clear error message showing expected location
+
+**Destination Mapping**:
+- `install_to_share` → `install/<pkg>/share/<pkg>/`
+- `install_to_include` → `install/<pkg>/include/<pkg>/`
+- `install_to_lib` → `install/<pkg>/lib/<pkg>/`
+
+**Files Modified**:
+- `packages/cargo-ros2/src/ament_installer.rs`:
+  - Enhanced `install_metadata_ros_files()` documentation with examples
+  - Changed from "warn on missing" to "error on missing" for stricter validation
+  - Already supported both directories and files (via `.is_dir()` check)
+- `packages/cargo-ros2/tests/test_metadata_ros.rs`: Added 4 new integration tests
+  - `test_metadata_ros_install_individual_file_to_share`
+  - `test_metadata_ros_install_individual_file_to_include`
+  - `test_metadata_ros_install_individual_file_to_lib`
+  - `test_metadata_ros_mixed_files_and_dirs`
+- `tmp/metadata_ros_recommendation.md`: Updated design documentation
+
+**Benefits**:
+- ✅ 100% backward compatible with cargo-ament-build
+- ✅ Simple and declarative (no complex installation scripts)
+- ✅ Supports common ROS 2 use cases (launch, config, urdf, rviz, meshes)
+- ✅ Works with both standalone packages and colcon workspaces
+- ✅ Clear error messages for missing paths
+
+**Test Coverage**:
+- ✅ All 206 tests passing (203 Rust + 3 Python)
+- ✅ Test coverage for directories, individual files, and mixed usage
+- ✅ Zero clippy warnings
+
+**Example Usage**:
+```toml
+[package]
+name = "my_robot_controller"
+version = "0.1.0"
+
+[[bin]]
+name = "controller_node"
+
+[package.metadata.ros]
+install_to_share = ["launch", "config", "urdf", "README.md", "LICENSE"]
+```
+
+Results in:
+```
+install/my_robot_controller/
+├── lib/my_robot_controller/
+│   └── controller_node
+└── share/my_robot_controller/
+    ├── launch/            # Directory preserved
+    ├── config/            # Directory preserved
+    ├── urdf/              # Directory preserved
+    ├── README.md          # Individual file
+    ├── LICENSE            # Individual file
+    ├── rust/              # Source code (automatic)
+    └── package.xml        # Metadata (automatic)
+```
+
+---
+
 ## Recent Architectural Improvements (2025-11-14)
 
 ### Constant Type Fix and Colcon Package Discovery (2025-11-14)
@@ -720,22 +800,24 @@ new_string: new content
 
 **CRITICAL RULE: All temporary files MUST be created in `$PROJECT_ROOT/tmp/` using Write/Edit tools**
 
-**For ALL temporary files** (scripts, test data, build artifacts, analysis output):
+**For ALL temporary files** (scripts, test data, build artifacts, analysis output, design documents):
 - ✅ **ALWAYS**: Use `Write` tool to create files in `tmp/`
 - ✅ **ALWAYS**: Use `Edit` tool to modify files in `tmp/`
 - ❌ **NEVER**: Use bash redirects (`>`, `>>`, `cat <<EOF`, etc.) for temp files
-- ❌ **NEVER**: Create temp files outside `tmp/` directory
+- ❌ **NEVER**: Use bash heredoc (`cat > file <<'EOF'`) for temp files
+- ❌ **NEVER**: Create temp files in system `/tmp/` or other locations
 
 **Rationale**:
 - Keeps workspace clean and organized
 - `tmp/` is gitignored by default
-- Write/Edit tools provide better error handling
-- Easier to track what files are created
-- Temp files can be referenced later if needed
+- Write/Edit tools provide better error handling and validation
+- Easier to track what files are created during development
+- Temp files persist across sessions for later reference
+- User can review and version control important temp files if needed
 
 **Example**:
 ```
-# ✅ CORRECT:
+# ✅ CORRECT - Use Write tool:
 Write: tmp/test_data.json
 Content: {"key": "value"}
 
@@ -744,13 +826,19 @@ Content: |
   #!/bin/bash
   cargo build --release
 
+Write: tmp/design_notes.md
+Content: |
+  # Design Notes
+  - Approach A: ...
+  - Approach B: ...
+
 Bash: chmod +x tmp/build_script.sh && tmp/build_script.sh
 
-# ❌ WRONG:
+# ❌ WRONG - Never use bash redirects:
 Bash: echo '{"key": "value"}' > /tmp/test_data.json
-Bash: cat > build_script.sh <<'EOF'
-  #!/bin/bash
-  cargo build --release
+Bash: cat > tmp/design.md <<'EOF'
+  # Design
+  ...
 EOF
 ```
 
@@ -911,8 +999,8 @@ MIT OR Apache-2.0 (to be decided - compatible with ROS 2 ecosystem)
 ---
 
 **Status**: v0.3.1 Released (2025-11-17)
-**Progress**: 15/20 subphases (75%) | 199 tests passing (196 Rust + 3 Python) | Zero warnings
-**Latest**: WString support ✅, `--cargo-args` support ✅, Ruff linter migration ✅, Tested with autoware_carla_bridge (118 packages) ✅
+**Progress**: 15/20 subphases (75%) | 206 tests passing (203 Rust + 3 Python) | Zero warnings
+**Latest**: `[package.metadata.ros]` installation support ✅, WString support ✅, `--cargo-args` support ✅, Ruff linter migration ✅, Tested with autoware_carla_bridge (118 packages) ✅
 **Versions**:
 - Rust workspace: v0.2.0 (rosidl-parser, rosidl-codegen, rosidl-bindgen, cargo-ros2)
 - Python package: v0.3.1 (colcon-cargo-ros2)
