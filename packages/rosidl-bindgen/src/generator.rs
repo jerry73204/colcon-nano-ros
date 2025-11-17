@@ -431,16 +431,16 @@ fn write_generated_package(
     output_dir: &Path,
     name: &str,
 ) -> Result<()> {
-    // Create src directory
-    let src_dir = output_dir.join("src");
-    std::fs::create_dir_all(&src_dir)?;
+    // Create src/msg/ subdirectory
+    let msg_dir = output_dir.join("src").join("msg");
+    std::fs::create_dir_all(&msg_dir)?;
 
-    // Write RMW (FFI) message directly to src/
-    let rmw_file = src_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
+    // Write RMW (FFI) message to src/msg/
+    let rmw_file = msg_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
     std::fs::write(&rmw_file, &generated.message_rmw)?;
 
-    // Write idiomatic message directly to src/
-    let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
+    // Write idiomatic message to src/msg/
+    let idiomatic_file = msg_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.message_idiomatic)?;
 
     Ok(())
@@ -452,16 +452,16 @@ fn write_generated_service(
     output_dir: &Path,
     name: &str,
 ) -> Result<()> {
-    // Create src directory
-    let src_dir = output_dir.join("src");
-    std::fs::create_dir_all(&src_dir)?;
+    // Create src/srv/ subdirectory
+    let srv_dir = output_dir.join("src").join("srv");
+    std::fs::create_dir_all(&srv_dir)?;
 
-    // Write RMW (FFI) service directly to src/
-    let rmw_file = src_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
+    // Write RMW (FFI) service to src/srv/
+    let rmw_file = srv_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
     std::fs::write(&rmw_file, &generated.service_rmw)?;
 
-    // Write idiomatic service directly to src/
-    let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
+    // Write idiomatic service to src/srv/
+    let idiomatic_file = srv_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.service_idiomatic)?;
 
     Ok(())
@@ -473,16 +473,16 @@ fn write_generated_action(
     output_dir: &Path,
     name: &str,
 ) -> Result<()> {
-    // Create src directory
-    let src_dir = output_dir.join("src");
-    std::fs::create_dir_all(&src_dir)?;
+    // Create src/action/ subdirectory
+    let action_dir = output_dir.join("src").join("action");
+    std::fs::create_dir_all(&action_dir)?;
 
-    // Write RMW (FFI) action directly to src/
-    let rmw_file = src_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
+    // Write RMW (FFI) action to src/action/
+    let rmw_file = action_dir.join(format!("{}_rmw.rs", to_snake_case(name)));
     std::fs::write(&rmw_file, &generated.action_rmw)?;
 
-    // Write idiomatic action directly to src/
-    let idiomatic_file = src_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
+    // Write idiomatic action to src/action/
+    let idiomatic_file = action_dir.join(format!("{}_idiomatic.rs", to_snake_case(name)));
     std::fs::write(&idiomatic_file, &generated.action_idiomatic)?;
 
     Ok(())
@@ -612,8 +612,10 @@ fn generate_lib_rs(
     let lib_rs = template.render()?;
     std::fs::write(src_dir.join("lib.rs"), lib_rs)?;
 
-    // Generate msg.rs if there are messages or IDL artifacts
+    // Generate msg/mod.rs if there are messages or IDL artifacts
     if !messages.is_empty() || !constant_modules.is_empty() || !enums.is_empty() {
+        let msg_dir = src_dir.join("msg");
+        std::fs::create_dir_all(&msg_dir)?;
         let msg_template = MsgRsTemplate {
             package_name: package.name.clone(),
             messages: messages.clone(),
@@ -621,27 +623,31 @@ fn generate_lib_rs(
             enums,
         };
         let msg_rs = msg_template.render()?;
-        std::fs::write(src_dir.join("msg.rs"), msg_rs)?;
+        std::fs::write(msg_dir.join("mod.rs"), msg_rs)?;
     }
 
-    // Generate srv.rs if there are services
+    // Generate srv/mod.rs if there are services
     if !services.is_empty() {
+        let srv_dir = src_dir.join("srv");
+        std::fs::create_dir_all(&srv_dir)?;
         let srv_template = SrvRsTemplate {
             package_name: package.name.clone(),
             services: services.clone(),
         };
         let srv_rs = srv_template.render()?;
-        std::fs::write(src_dir.join("srv.rs"), srv_rs)?;
+        std::fs::write(srv_dir.join("mod.rs"), srv_rs)?;
     }
 
-    // Generate action.rs if there are actions
+    // Generate action/mod.rs if there are actions
     if !actions.is_empty() {
+        let action_dir = src_dir.join("action");
+        std::fs::create_dir_all(&action_dir)?;
         let action_template = ActionRsTemplate {
             package_name: package.name.clone(),
             actions: actions.clone(),
         };
         let action_rs = action_template.render()?;
-        std::fs::write(src_dir.join("action.rs"), action_rs)?;
+        std::fs::write(action_dir.join("mod.rs"), action_rs)?;
     }
 
     Ok(())
