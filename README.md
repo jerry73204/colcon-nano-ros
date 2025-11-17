@@ -211,6 +211,128 @@ ros2_ws/
 - **Clean Workspace**: `colcon clean` removes all generated code
 - **Standard Cargo**: Normal Cargo workflows work as expected
 
+## Advanced Features
+
+### Installing Additional Files with `[package.metadata.ros]`
+
+ROS 2 packages often need to install additional files beyond binaries (launch files, config files, URDF models, RViz configs, meshes, etc.). Use the `[package.metadata.ros]` section in `Cargo.toml` to specify these files:
+
+```toml
+[package]
+name = "my_robot"
+version = "0.1.0"
+
+[dependencies]
+rclrs = "0.6"
+std_msgs = "*"
+
+[package.metadata.ros]
+install_to_share = ["launch", "config", "urdf", "README.md"]
+install_to_include = ["include"]
+install_to_lib = ["scripts"]
+```
+
+#### Supported Keys
+
+- **`install_to_share`**: Files/directories installed to `install/<pkg>/share/<pkg>/`
+  - Launch files, config files, URDF models, RViz configs, meshes, documentation
+- **`install_to_include`**: Headers installed to `install/<pkg>/include/<pkg>/`
+  - C/C++ headers for FFI libraries
+- **`install_to_lib`**: Scripts/utilities installed to `install/<pkg>/lib/<pkg>/`
+  - Helper scripts and executables
+
+#### Installation Behavior
+
+**Directories** (copied recursively):
+```toml
+install_to_share = ["launch", "config"]
+```
+```
+project/launch/         →  install/my_robot/share/my_robot/launch/
+project/config/         →  install/my_robot/share/my_robot/config/
+```
+
+**Individual Files** (filename preserved, parent path dropped):
+```toml
+install_to_share = ["README.md", "LICENSE"]
+```
+```
+project/README.md       →  install/my_robot/share/my_robot/README.md
+project/LICENSE         →  install/my_robot/share/my_robot/LICENSE
+```
+
+**Mixed Directories and Files**:
+```toml
+install_to_share = ["launch", "config", "README.md", "LICENSE"]
+```
+
+#### Example: Robot Description Package
+
+```toml
+[package]
+name = "my_robot_description"
+version = "0.1.0"
+
+[lib]
+# Library-only package (no binaries)
+
+[package.metadata.ros]
+install_to_share = ["urdf", "meshes", "launch", "rviz"]
+```
+
+**Project structure**:
+```
+my_robot_description/
+├── Cargo.toml
+├── package.xml
+├── src/lib.rs
+├── urdf/
+│   ├── robot.urdf.xacro
+│   └── robot.urdf
+├── meshes/
+│   ├── base.stl
+│   └── arm.dae
+├── launch/
+│   └── display.launch.xml
+└── rviz/
+    └── default.rviz
+```
+
+**After `colcon build`**:
+```
+install/my_robot_description/
+└── share/my_robot_description/
+    ├── urdf/              # Directory with all URDF files
+    ├── meshes/            # Directory with all mesh files
+    ├── launch/            # Directory with launch files
+    ├── rviz/              # Directory with RViz configs
+    ├── rust/              # Source code (automatic)
+    └── package.xml        # Metadata (automatic)
+```
+
+#### Usage in Launch Files
+
+Installed files can be referenced using standard ROS 2 mechanisms:
+
+**Python launch file**:
+```python
+from ament_index_python.packages import get_package_share_directory
+import os
+
+pkg_share = get_package_share_directory('my_robot_description')
+urdf_file = os.path.join(pkg_share, 'urdf', 'robot.urdf')
+```
+
+**XML launch file**:
+```xml
+<launch>
+  <node pkg="robot_state_publisher" exec="robot_state_publisher">
+    <param name="robot_description"
+           value="$(find-pkg-share my_robot_description)/urdf/robot.urdf" />
+  </node>
+</launch>
+```
+
 ## Troubleshooting
 
 ### "Package not found in ament index"
