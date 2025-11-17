@@ -3,11 +3,11 @@
 
 import asyncio
 import os
-from pathlib import Path
 import shutil
 import tempfile
-from types import SimpleNamespace
 import xml.etree.ElementTree as eTree
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from colcon_core.event_handler.console_direct import ConsoleDirectEventHandler
