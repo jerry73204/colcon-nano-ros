@@ -304,13 +304,40 @@ class WorkspaceBindingGenerator:
         if rclrs_dir.exists() and (rclrs_dir / "Cargo.toml").exists():
             patches.append(f'rclrs = {{ path = "{rclrs_dir.absolute()}" }}')
 
+        # Build [build] section with rustflags for linker search paths
+        # This is critical for finding workspace-local ROS package libraries
+        rustflags = []
+
+        # Add workspace install directory lib paths
+        if self.install_base.exists():
+            for pkg_install in self.install_base.iterdir():
+                if not pkg_install.is_dir():
+                    continue
+                lib_dir = pkg_install / "lib"
+                if lib_dir.exists():
+                    rustflags.append(f'"-L", "native={lib_dir.absolute()}"')
+
+        # Add system ROS library paths from AMENT_PREFIX_PATH
+        import os
+        if "AMENT_PREFIX_PATH" in os.environ:
+            for prefix in os.environ["AMENT_PREFIX_PATH"].split(":"):
+                lib_path = Path(prefix) / "lib"
+                if lib_path.exists():
+                    rustflags.append(f'"-L", "native={lib_path.absolute()}"')
+
         # Write config.toml
         content = "[patch.crates-io]\n"
         content += "\n".join(patches)
         content += "\n"
 
+        if rustflags:
+            content += "\n[build]\n"
+            content += "rustflags = [\n"
+            content += ",\n".join(f"    {flag}" for flag in rustflags)
+            content += "\n]\n"
+
         config_file.write_text(content)
-        logger.info(f"Wrote Cargo config with {len(patches)} patches to {config_file}")
+        logger.info(f"Wrote Cargo config with {len(patches)} patches and {len(rustflags)} linker paths to {config_file}")
 
 
 def generate_workspace_bindings(
