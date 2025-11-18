@@ -10,7 +10,7 @@ members = [
 
 [workspace.package]
 version = "0.2.0"
-authors = []
+authors = ["Lin Hsiang-Jui <jerry73204@gmail.com>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/azewiusz/colcon-cargo-ros2"

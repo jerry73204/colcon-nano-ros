@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "Apache-2.0" }
 authors = [
-    { name = "Nikolai Morin", email = "nnmmgit@gmail.com" }
+    { name = "Lin Hsiang-Jui", email = "jerry73204@gmail.com" }
 ]
 keywords = [
     "ROS",

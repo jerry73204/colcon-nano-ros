@@ -3,7 +3,7 @@ name = "colcon-cargo-ros2"
 version = "0.2.0"
 edition = "2021"
 license = "Apache-2.0"
-authors = ["Nikolai Morin <nnmmgit@gmail.com>"]
+authors = ["Lin Hsiang-Jui <jerry73204@gmail.com>"]
 description = "Extension for colcon to support Rust ROS 2 packages using cargo-ros2"
 
 [lib]
