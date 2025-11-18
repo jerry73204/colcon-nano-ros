@@ -16,6 +16,17 @@ builtin_interfaces = "*"
 std_msgs = "*"
 geometry_msgs = "*"
 sensor_msgs = "*"
+nav_msgs = "*"
+trajectory_msgs = "*"
+action_msgs = "*"
+diagnostic_msgs = "*"
+
+# Navigation and control packages
+nav2_msgs = "*"
+control_msgs = "*"
+
+# Motion planning
+moveit_msgs = "*"
 
 # Custom interface package
 robot_interfaces = "*"
