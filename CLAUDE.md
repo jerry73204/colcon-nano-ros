@@ -89,6 +89,22 @@ just install-python
 just install  # Install from wheel
 ```
 
+### Version Management
+
+```bash
+# Bump version in both pyproject.toml and Cargo.toml
+just bump-version 0.4.0
+
+# Output:
+# ✓ Updated packages/colcon-cargo-ros2/pyproject.toml
+# ✓ Updated packages/colcon-cargo-ros2/Cargo.toml
+# Next steps:
+#   1. Review changes: git diff
+#   2. Commit: git add -u && git commit -m 'Bump version to 0.4.0'
+#   3. Tag: git tag v0.4.0
+#   4. Build: just build-python
+```
+
 ### Development Cycle
 
 **CRITICAL**: After modifying code, rebuild and reinstall to see changes:
@@ -160,6 +176,111 @@ Ensures:
 - Zero warnings
 
 ## Recent Architectural Improvements
+
+### Capitalized Boolean Literals Support (2025-11-18)
+
+**Problem**: Parser failed on ROS 2 action files using capitalized boolean literals (`True`/`False`):
+```
+Failed to parse action: DockRobot: Unexpected token: expected Identifier, got string
+```
+
+**Root Cause**: Lexer only recognized `true`/`TRUE` and `false`/`FALSE`, but not `True`/`False`.
+
+**Solution**: Extended lexer token definitions in `packages/rosidl-parser/src/lexer.rs`:
+```rust
+#[token("true")]
+#[token("TRUE")]
+#[token("True")]   // Added
+True,
+
+#[token("false")]
+#[token("FALSE")]
+#[token("False")]  // Added
+False,
+```
+
+**Files Modified**:
+- `packages/rosidl-parser/src/lexer.rs`
+
+**Impact**: Successfully parses nav2_msgs actions (DockRobot, etc.) and other packages using capitalized booleans.
+
+**Tests**: Added `lex_capitalized_boolean_literals` test.
+
+---
+
+### Action Constant Namespace Collision Fix (2025-11-18)
+
+**Problem**: Action constants with duplicate names across Goal/Result/Feedback sections caused compilation errors:
+```rust
+error[E0428]: the name `NONE` is defined multiple times
+  --> nav2_msgs/src/action/dock_robot_rmw.rs:32:1
+   |
+13 | pub const NONE: u16 = 0;  // Result section
+32 | pub const NONE: u16 = 0;  // Feedback section
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ `NONE` redefined here
+```
+
+**Root Cause**: All constants were generated at module top level without namespace separation.
+
+**Solution**: Wrapped constants in separate modules in `packages/rosidl-codegen/templates/action_rmw.rs.jinja`:
+```rust
+// Before (conflicting)
+pub const NONE: u16 = 0;  // Result
+pub const NONE: u16 = 0;  // Feedback (error!)
+
+// After (namespaced)
+pub mod result_constants {
+    pub const NONE: u16 = 0;
+}
+pub mod feedback_constants {
+    pub const NONE: u16 = 0;
+}
+```
+
+**Usage**:
+```rust
+nav2_msgs::action::rmw::dock_robot::result_constants::NONE
+nav2_msgs::action::rmw::dock_robot::feedback_constants::NONE
+```
+
+**Files Modified**:
+- `packages/rosidl-codegen/templates/action_rmw.rs.jinja`
+
+**Impact**: Enables actions with duplicate constant names (common in ROS 2 ecosystem).
+
+---
+
+### Package Version Extraction from package.xml (2025-11-18)
+
+**Problem**: All generated message crates used hardcoded `ROSIDL_RUNTIME_RS_VERSION` ("0.5") instead of actual ROS package version.
+
+**Solution**:
+1. Added `version: String` field to `Package` struct
+2. Implemented `parse_package_version()` to extract `<version>` from package.xml
+3. Updated `generate_cargo_toml()` to use package version
+
+**Example**:
+```toml
+# Before (incorrect)
+[package]
+name = "std_msgs"
+version = "0.5.0"  # Wrong - used ROSIDL_RUNTIME_RS_VERSION
+
+# After (correct)
+[package]
+name = "std_msgs"
+version = "5.3.0"  # Correct - from package.xml
+```
+
+**Files Modified**:
+- `packages/rosidl-bindgen/src/ament.rs`
+- `packages/rosidl-bindgen/src/generator.rs`
+
+**Impact**: Generated crates now have correct semantic versions matching ROS packages.
+
+**Tests**: Added 6 new tests for version parsing and generation.
+
+---
 
 ### Workspace-Local Library Linking Fix (2025-11-18)
 
@@ -256,6 +377,8 @@ Benefits:
 
 ## Testing
 
+### Unit Tests
+
 ```bash
 # All tests
 just test
@@ -268,6 +391,35 @@ just test-user-libs    # Requires ROS
 cd packages/rosidl-codegen && cargo test
 ```
 
+### Integration Testing Workspaces
+
+**testing_workspaces/complex_workspace** - Comprehensive message type testing:
+
+Demonstrates 50+ message/action types from 17 different ROS 2 packages:
+
+```bash
+cd testing_workspaces/complex_workspace
+just clean && just build  # Build workspace
+just run                   # Execute test binary
+```
+
+**Coverage includes**:
+- **Standard messages** (18 types): std_msgs, builtin_interfaces, geometry_msgs, sensor_msgs
+- **Navigation** (5 types): nav_msgs (Odometry, Path, OccupancyGrid), trajectory_msgs
+- **Control & Diagnostics** (4 types): control_msgs, diagnostic_msgs
+- **Nav2 Actions** (6 types): NavigateToPose, DockRobot (tests capitalized booleans!)
+- **Motion Planning** (3 types): moveit_msgs (RobotState, MotionPlanRequest, PlanningScene)
+- **Action System** (3 types): action_msgs (GoalInfo, GoalStatus, GoalStatusArray)
+- **Custom Interfaces** (6 types): robot_interfaces messages, services, actions
+
+**Key Features Tested**:
+- ✅ Capitalized boolean literals in action files
+- ✅ Action constants in separate namespaces
+- ✅ Complex nested message dependencies
+- ✅ Custom interface packages
+- ✅ Service and action type generation
+- ✅ Workspace-level binding sharing
+
 ## CI/CD
 
 GitHub Actions workflows:
@@ -278,14 +430,18 @@ Builds 31 artifacts (30 wheels + sdist) for Linux/macOS/Windows × Python 3.8-3.
 
 ## Status
 
-**Version**: v0.3.0 Released (2025-11-18)
-**Progress**: 15/20 subphases (75%) | 206 tests passing (203 Rust + 3 Python) | Zero warnings
-**Latest**: Workspace-local library linking fix ✅, `[package.metadata.ros]` installation support ✅
-**Testing**: Validated with autoware_carla_bridge (118 packages) ✅, splat-drive workspace (6 packages + custom interfaces) ✅
+**Version**: v0.3.2 (2025-11-18)
+**Progress**: 15/20 subphases (75%) | 180 tests passing (177 Rust + 3 Python) | Zero warnings
+**Latest**: Capitalized boolean support ✅, Action constant namespacing ✅, Package version extraction ✅
+**Testing**: Validated with:
+- autoware_carla_bridge (118 packages) ✅
+- splat-drive workspace (6 packages + custom interfaces) ✅
+- complex_workspace (50+ message types from 17 packages) ✅
 
 **Versions**:
 - Rust workspace: v0.2.0 (rosidl-parser, rosidl-codegen, rosidl-bindgen, cargo-ros2)
-- Python package: v0.3.0 (colcon-cargo-ros2)
+- Python package: v0.3.2 (colcon-cargo-ros2)
+- Author: Lin Hsiang-Jui <jerry73204@gmail.com>
 
 **PyPI**: 31 artifacts for Linux/macOS/Windows × Python 3.8-3.13
 
@@ -294,5 +450,22 @@ Builds 31 artifacts (30 wheels + sdist) for Linux/macOS/Windows × Python 3.8-3.
 - Workspace-level binding generation via colcon's package discovery
 - Rustflags-based linker search paths for workspace libraries
 - Complete ament layout installation
+- Package versions extracted from package.xml
+
+**Testing Coverage**:
+- **Standard ROS 2 packages**: std_msgs, geometry_msgs, sensor_msgs, nav_msgs, trajectory_msgs, builtin_interfaces
+- **Navigation**: nav2_msgs with complex actions (NavigateToPose, DockRobot with capitalized booleans)
+- **Motion planning**: moveit_msgs with nested dependencies
+- **Control**: control_msgs, diagnostic_msgs, action_msgs
+- **Custom interfaces**: Messages, services, actions with full type support
+
+**Key Features**:
+- ✅ Capitalized boolean literals (`True`/`False`)
+- ✅ Action constants in separate namespaces
+- ✅ Correct package versions in generated crates
+- ✅ Workspace-local library linking
+- ✅ `[package.metadata.ros]` installation
+- ✅ `--cargo-args` pass-through
+- ✅ Version management with `just bump-version`
 
 **Next**: Phase 3.4 - Enhanced Testing & Documentation
