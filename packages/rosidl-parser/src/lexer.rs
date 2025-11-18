@@ -120,10 +120,12 @@ pub enum TokenKind {
     // Boolean literals
     #[token("true")]
     #[token("TRUE")]
+    #[token("True")]
     True,
 
     #[token("false")]
     #[token("FALSE")]
+    #[token("False")]
     False,
 }
 
@@ -297,5 +299,19 @@ mod tests {
             .position(|t| t.kind == TokenKind::Minus)
             .unwrap();
         assert!(triple_dash_pos < minus_pos);
+    }
+
+    #[test]
+    fn lex_capitalized_boolean_literals() {
+        // Test True/False (capitalized) - common in ROS 2 action files
+        let input = "bool use_dock_id True\nbool navigate False";
+        let tokens = lex(input).unwrap();
+        assert_eq!(tokens.len(), 6); // bool, use_dock_id, True, bool, navigate, False
+        assert_eq!(tokens[0].kind, TokenKind::Bool);
+        assert_eq!(tokens[1].kind, TokenKind::Identifier);
+        assert_eq!(tokens[2].kind, TokenKind::True);
+        assert_eq!(tokens[3].kind, TokenKind::Bool);
+        assert_eq!(tokens[4].kind, TokenKind::Identifier);
+        assert_eq!(tokens[5].kind, TokenKind::False);
     }
 }
