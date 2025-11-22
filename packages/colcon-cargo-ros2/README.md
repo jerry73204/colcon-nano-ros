@@ -71,9 +71,8 @@ geometry_msgs = "*"
   <maintainer email="you@example.com">Your Name</maintainer>
   <license>Apache-2.0</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cargo</buildtool_depend>
 
-  <depend>rclrs</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
 
@@ -85,26 +84,34 @@ geometry_msgs = "*"
 
 **src/main.rs**:
 ```rust
-use rclrs::{Context, Node, RclrsError};
-use std_msgs::msg::String as StringMsg;
+use rclrs::CreateBasicExecutor;
 
-fn main() -> Result<(), RclrsError> {
-    let context = Context::new(std::env::args())?;
-    let node = Node::new(&context, "my_robot_node")?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize ROS context from environment
+    let context = rclrs::Context::default_from_env()?;
 
-    let publisher = node.create_publisher::<StringMsg>("chatter", 10)?;
+    // Create executor (manages event loop)
+    let executor = context.create_basic_executor();
 
-    let mut count = 0;
-    loop {
-        let mut msg = StringMsg::default();
-        msg.data = format!("Hello from Rust! {}", count);
+    // Create node through executor
+    let node = executor.create_node("minimal_publisher")?;
+
+    // Create publisher for std_msgs/String on the "chatter" topic
+    let publisher = node.create_publisher::<std_msgs::msg::String>("chatter")?;
+
+    // Publish a few messages
+    for i in 0..5 {
+        let mut msg = std_msgs::msg::String::default();
+        msg.data = format!("Hello from Rust! Message #{}", i);
+
+        println!("Publishing: '{}'", msg.data);
         publisher.publish(msg)?;
 
-        println!("Published: {}", count);
-        count += 1;
-
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        std::thread::sleep(std::time::Duration::from_millis(500));
     }
+
+    println!("✓ Published 5 messages successfully!");
+    Ok(())
 }
 ```
 
@@ -122,11 +129,21 @@ The extension will:
 3. Build your Rust package with cargo
 4. Install binaries to `install/my_robot_node/lib/my_robot_node/`
 
-### 5. Run Your Node
+### 5. Run Your Program
 
 ```bash
 source install/setup.bash
 ros2 run my_robot_node my_robot_node
+```
+
+Expected output:
+```
+Publishing: 'Hello from Rust! Message #0'
+Publishing: 'Hello from Rust! Message #1'
+Publishing: 'Hello from Rust! Message #2'
+Publishing: 'Hello from Rust! Message #3'
+Publishing: 'Hello from Rust! Message #4'
+✓ Published 5 messages successfully!
 ```
 
 ## Package Structure
@@ -180,7 +197,7 @@ When building a colcon workspace, `colcon-cargo-ros2`:
 1. **Discovers Packages**: Finds all ROS dependencies via ament index
 2. **Generates Bindings**: Creates Rust bindings in `build/<pkg>/rosidl_cargo/` for each interface package
 3. **Creates Config File**: Writes `build/ros2_cargo_config.toml` with relative paths to all bindings
-4. **Builds**: Runs `cargo build --config build/ros2_cargo_config.toml`
+4. **Builds**: Runs `cargo build --config build/ros2_cargo_config.toml` from workspace root
 5. **Installs**: Copies binaries and creates ament markers
 
 **Workspace Structure**:
@@ -214,118 +231,81 @@ ros2_ws/
 - **Per-Package Organization**: Bindings follow ROS conventions (like `rosidl_cmake/`)
 - **Fast Builds**: Intelligent caching skips regeneration when possible
 - **Clean Workspace**: `colcon clean` removes all generated code
-- **Explicit Paths**: Config file uses absolute paths for reliable resolution
+- **Portable**: Config file uses relative paths, making workspaces fully portable
 
-## Developer Workflow
+## Advanced Features
 
-### Using cargo check/clippy/test Outside colcon
+### Installing Additional Files with `[package.metadata.ros]`
 
-When working on Rust packages, you can use standard Cargo commands directly. However, you need to pass the `--config` flag to use the workspace-generated bindings:
-
-```bash
-cd ~/ros2_ws/src/my_robot_node
-
-# Check your code
-cargo check --config ../../build/ros2_cargo_config.toml
-
-# Run clippy linter
-cargo clippy --config ../../build/ros2_cargo_config.toml
-
-# Run tests
-cargo test --config ../../build/ros2_cargo_config.toml
-
-# Build directly (not recommended - use colcon build instead)
-cargo build --config ../../build/ros2_cargo_config.toml
-```
-
-**Tip**: Create shell aliases to avoid typing the full --config path:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias cargoros2='cargo --config ../../build/ros2_cargo_config.toml'
-
-# Usage
-cd ~/ros2_ws/src/my_robot_node
-cargoros2 check
-cargoros2 clippy
-cargoros2 test
-```
-
-### IDE Integration (rust-analyzer)
-
-For full IDE support (completions, error checking, goto definition), configure rust-analyzer to use the workspace config file.
-
-#### VSCode
-
-Create or update `.vscode/settings.json` in your workspace root:
-
-```json
-{
-  "rust-analyzer.cargo.extraArgs": [
-    "--config",
-    "build/ros2_cargo_config.toml"
-  ]
-}
-```
-
-#### Neovim (nvim-lspconfig)
-
-```lua
-require('lspconfig').rust_analyzer.setup({
-  settings = {
-    ['rust-analyzer'] = {
-      cargo = {
-        extraArgs = { '--config', 'build/ros2_cargo_config.toml' }
-      }
-    }
-  }
-})
-```
-
-#### Emacs (lsp-mode)
-
-```elisp
-(setq lsp-rust-analyzer-cargo-extra-args
-      '("--config" "build/ros2_cargo_config.toml"))
-```
-
-#### Helix
-
-Add to your `languages.toml`:
+ROS 2 packages often need to install additional files beyond binaries (launch files, config files, URDF models, RViz configs, meshes, etc.). Use the `[package.metadata.ros]` section in `Cargo.toml` to specify these files:
 
 ```toml
-[[language]]
-name = "rust"
-[language.config.cargo]
-extraArgs = ["--config", "build/ros2_cargo_config.toml"]
+[package]
+name = "my_robot"
+version = "0.1.0"
+
+[dependencies]
+rclrs = "0.6"
+std_msgs = "*"
+
+[package.metadata.ros]
+install_to_share = ["launch", "config", "urdf", "README.md"]
+install_to_include = ["include"]
+install_to_lib = ["scripts"]
 ```
 
-### Optional: Cargo Alias Configuration
+#### Supported Keys
 
-For even better ergonomics, you can manually add cargo aliases to your workspace's `.cargo/config.toml` file (at workspace root, not in individual packages):
+- **`install_to_share`**: Files/directories installed to `install/<pkg>/share/<pkg>/`
+  - Launch files, config files, URDF models, RViz configs, meshes, documentation
+- **`install_to_include`**: Headers installed to `install/<pkg>/include/<pkg>/`
+  - C/C++ headers for FFI libraries
+- **`install_to_lib`**: Scripts/utilities installed to `install/<pkg>/lib/<pkg>/`
+  - Helper scripts and executables
+
+#### Example: Robot Description Package
 
 ```toml
-# Create: ~/ros2_ws/.cargo/config.toml
-[alias]
-ros2-check = ["check", "--config", "build/ros2_cargo_config.toml"]
-ros2-clippy = ["clippy", "--config", "build/ros2_cargo_config.toml"]
-ros2-test = ["test", "--config", "build/ros2_cargo_config.toml"]
-ros2-build = ["build", "--config", "build/ros2_cargo_config.toml"]
+[package]
+name = "my_robot_description"
+version = "0.1.0"
 
-# Short forms
-r2c = ["check", "--config", "build/ros2_cargo_config.toml"]
-r2b = ["build", "--config", "build/ros2_cargo_config.toml"]
+[lib]
+# Library-only package (no binaries)
+
+[package.metadata.ros]
+install_to_share = ["urdf", "meshes", "launch", "rviz"]
 ```
 
-Then use them like:
-
-```bash
-cd ~/ros2_ws/src/my_robot_node
-cargo ros2-check   # Full name
-cargo r2c          # Short form
+**Project structure**:
+```
+my_robot_description/
+├── Cargo.toml
+├── package.xml
+├── src/lib.rs
+├── urdf/
+│   ├── robot.urdf.xacro
+│   └── robot.urdf
+├── meshes/
+│   ├── base.stl
+│   └── arm.dae
+├── launch/
+│   └── display.launch.xml
+└── rviz/
+    └── default.rviz
 ```
 
-**Note**: This file is safe to commit to version control since it only contains aliases with relative paths.
+**After `colcon build`**:
+```
+install/my_robot_description/
+└── share/my_robot_description/
+    ├── urdf/              # Directory with all URDF files
+    ├── meshes/            # Directory with all mesh files
+    ├── launch/            # Directory with launch files
+    ├── rviz/              # Directory with RViz configs
+    ├── rust/              # Source code (automatic)
+    └── package.xml        # Metadata (automatic)
+```
 
 ## Troubleshooting
 
@@ -370,11 +350,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, architecture detai
 
 ## Related Projects
 
-- [ros2_rust](https://github.com/ros2-rust/ros2_rust) - Official Rust bindings for ROS 2
+- [ros2\_rust](https://github.com/ros2-rust/ros2_rust) - Official Rust bindings for ROS 2
 - [r2r](https://github.com/sequenceplanner/r2r) - Alternative Rust bindings
 - [colcon](https://colcon.readthedocs.io) - Build tool for ROS 2
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/jerry73204/colcon-cargo-ros2/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/jerry73204/colcon-cargo-ros2/discussions)
