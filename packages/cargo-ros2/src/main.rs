@@ -51,6 +51,10 @@ enum Ros2Command {
         #[arg(long)]
         install_base: PathBuf,
 
+        /// Workspace build directory (where ros2_cargo_config.toml is located)
+        #[arg(long)]
+        build_base: Option<PathBuf>,
+
         /// Build profile (debug or release)
         #[arg(long, default_value = "debug")]
         profile: String,
@@ -85,11 +89,16 @@ fn main() -> Result<()> {
 
         Ros2Command::Install {
             install_base,
+            build_base,
             profile,
         } => {
+            // Default build_base to project_root if not provided
+            let build_base = build_base.unwrap_or_else(|| project_root.clone());
+
             let config = InstallConfig {
                 project_root,
                 install_base,
+                build_base,
                 profile,
                 verbose: args.verbose,
             };

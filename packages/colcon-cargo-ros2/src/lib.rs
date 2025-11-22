@@ -68,7 +68,13 @@ struct InstallConfig {
 impl InstallConfig {
     #[new]
     #[pyo3(signature = (project_root, install_base, build_base, profile="debug".to_string(), verbose=false))]
-    fn new(project_root: String, install_base: String, build_base: String, profile: String, verbose: bool) -> Self {
+    fn new(
+        project_root: String,
+        install_base: String,
+        build_base: String,
+        profile: String,
+        verbose: bool,
+    ) -> Self {
         Self {
             project_root,
             install_base,

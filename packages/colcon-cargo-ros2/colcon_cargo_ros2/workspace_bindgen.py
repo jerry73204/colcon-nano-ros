@@ -77,68 +77,296 @@ class WorkspaceBindingGenerator:
         logger.info("Workspace-level binding generation complete")
 
     def _discover_ros_packages(self) -> Dict[str, Path]:
-        """Discover all ROS packages from ament_index, install/, and colcon-discovered packages.
+        """Discover ROS interface packages that are dependencies of workspace Cargo packages.
+
+        This implements dependency-aware binding generation:
+        1. Get Cargo packages from augmentation (with parsed dependencies from package.xml)
+        2. Extract direct ROS dependencies from Colcon
+        3. Resolve transitive dependencies using catkin_pkg
+        4. Filter to only interface packages (have msg/srv/action)
 
         Returns:
             Dict mapping package names to their share/ directory paths
         """
-        packages = {}
-
-        # 1. First priority: Use packages discovered by colcon's PackageAugmentationExtensionPoint
-        # This respects colcon's package discovery (--base-paths, --packages-select, etc.)
-        # and provides source .msg files instead of generated .idl files from install/
         from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
 
-        interface_packages = getattr(RustBindingAugmentation, "_interface_packages", {})
-        pkg_names = list(interface_packages.keys())
-        logger.info(f"Colcon discovered {len(interface_packages)} interface packages: {pkg_names}")
-        for pkg_name, pkg_path in interface_packages.items():
-            # Use source directory directly for workspace packages
-            packages[pkg_name] = pkg_path
-            logger.info(f"Using colcon-discovered package: {pkg_name} at {pkg_path}")
+        # Get Cargo package descriptors (includes parsed dependencies from package.xml)
+        cargo_descriptors = getattr(RustBindingAugmentation, "_cargo_descriptors", {})
 
-        # 2. Discover from ament_index (system packages + already installed workspace packages)
-        try:
-            from ament_index_python.packages import (
-                get_package_share_directory,
-                get_packages_with_prefixes,
-            )
-        except ImportError as e:
-            logger.error(
-                f"\n\nament_index_python not found: {e}"
-                "\n\nPlease install ROS 2 dependencies:"
-                "\n  $ pip install ament_index_python\n"
-            )
-            raise
+        if not cargo_descriptors:
+            logger.info("No Cargo packages found in workspace")
+            return {}
 
-        all_packages = get_packages_with_prefixes()
-        for pkg_name, pkg_prefix in all_packages.items():
-            # Skip if already discovered from source (prioritize source over install)
-            if pkg_name in packages:
+        logger.info(f"Discovering dependencies for {len(cargo_descriptors)} Cargo packages")
+
+        # Step 1: Get direct ROS dependencies from Colcon-parsed package.xml
+        required_packages = set()
+
+        for pkg_name, desc in cargo_descriptors.items():
+            # Get build + run dependencies (interface packages needed at compile time)
+            # desc.dependencies is populated by Colcon's RosPackageIdentification
+            # from package.xml using catkin_pkg
+            deps = desc.get_dependencies(categories=["build", "run"])
+            dep_names = [d.name for d in deps]
+            required_packages.update(dep_names)
+
+            if dep_names:
+                logger.info(f"{pkg_name} has {len(dep_names)} direct dependencies: {dep_names}")
+
+        logger.info(f"Total direct dependencies: {len(required_packages)}")
+
+        # Step 2: Resolve transitive dependencies using catkin_pkg
+        # This handles: my_pkg -> geometry_msgs -> std_msgs -> builtin_interfaces
+        required_packages = self._resolve_transitive_dependencies(required_packages)
+
+        logger.info(f"Total after transitive resolution: {len(required_packages)}")
+
+        # Step 3: Check workspace packages for interfaces (from source directories)
+        # This also discovers their dependencies
+        workspace_interface_packages, workspace_deps = self._find_workspace_interface_packages(
+            required_packages
+        )
+
+        # Add dependencies of workspace packages to required set
+        required_packages.update(workspace_deps)
+
+        # Re-resolve transitive dependencies including workspace package dependencies
+        if workspace_deps:
+            logger.info(f"Adding {len(workspace_deps)} dependencies from workspace packages")
+            required_packages = self._resolve_transitive_dependencies(required_packages)
+            logger.info(
+                f"Total after resolving workspace package dependencies: {len(required_packages)}"
+            )
+
+        # Step 4: Filter remaining packages to interface packages (from ament_index)
+        remaining_packages = required_packages - set(workspace_interface_packages.keys())
+        interface_packages = self._filter_interface_packages(remaining_packages)
+
+        # Merge workspace and system interface packages
+        interface_packages.update(workspace_interface_packages)
+
+        logger.info(f"Final interface packages to generate: {len(interface_packages)}")
+
+        return interface_packages
+
+    def _find_workspace_interface_packages(self, required_packages: set):
+        """Find interface packages in the workspace from source directories.
+
+        This handles workspace-local packages that haven't been installed yet.
+        Also discovers their dependencies to ensure complete binding generation.
+
+        Args:
+            required_packages: Set of package names to check
+
+        Returns:
+            Tuple of (workspace_interface_packages, workspace_dependencies):
+            - workspace_interface_packages: Dict mapping package names to paths
+            - workspace_dependencies: Set of dependency names from workspace packages
+        """
+        from catkin_pkg.package import parse_package
+
+        from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
+
+        workspace_interface_packages = {}
+        workspace_dependencies = set()
+
+        # Get all package descriptors discovered by colcon
+        all_descriptors = getattr(RustBindingAugmentation, "_all_descriptors", set())
+
+        # Create a mapping of package name -> descriptor
+        descriptors_by_name = {desc.name: desc for desc in all_descriptors}
+
+        for pkg_name in required_packages:
+            if pkg_name in descriptors_by_name:
+                desc = descriptors_by_name[pkg_name]
+                pkg_path = Path(desc.path)
+
+                # Check if package has interface definitions in source directory
+                has_interfaces = any(
+                    [
+                        (pkg_path / "msg").exists(),
+                        (pkg_path / "srv").exists(),
+                        (pkg_path / "action").exists(),
+                    ]
+                )
+
+                if has_interfaces:
+                    # For workspace packages, we use the source directory as the "share" path
+                    # because the package hasn't been installed yet
+                    workspace_interface_packages[pkg_name] = pkg_path
+                    logger.info(f"Found workspace interface package: {pkg_name} at {pkg_path}")
+
+                    # Parse package.xml to discover dependencies of workspace package
+                    try:
+                        pkg = parse_package(str(pkg_path))
+                        import os
+
+                        condition_context = {**os.environ}
+                        pkg.evaluate_conditions(condition_context)
+
+                        # Get all build + run dependencies
+                        deps = set()
+                        for d in pkg.build_depends:
+                            if d.evaluated_condition:
+                                deps.add(d.name)
+                        for d in pkg.build_export_depends:
+                            if d.evaluated_condition:
+                                deps.add(d.name)
+                        for d in pkg.exec_depends:
+                            if d.evaluated_condition:
+                                deps.add(d.name)
+
+                        if deps:
+                            logger.debug(f"{pkg_name} (workspace) added deps: {deps}")
+                            workspace_dependencies.update(deps)
+
+                    except Exception as e:
+                        logger.debug(
+                            f"Could not parse package.xml for workspace package {pkg_name}: {e}"
+                        )
+
+        return workspace_interface_packages, workspace_dependencies
+
+    def _resolve_transitive_dependencies(self, initial_packages: set) -> set:
+        """Resolve transitive ROS dependencies using catkin_pkg.
+
+        This is the official ROS 2 method for parsing package.xml files.
+        Despite the name, catkin_pkg is used by ROS 2 (see colcon-ros documentation).
+
+        Args:
+            initial_packages: Set of direct dependency package names
+
+        Returns:
+            Set of all packages (direct + transitive)
+        """
+        import os
+
+        from ament_index_python.packages import get_package_share_directory
+        from catkin_pkg.package import parse_package
+
+        # Add workspace install directory to AMENT_PREFIX_PATH so we can find
+        # workspace-local packages
+        original_ament_prefix = os.environ.get("AMENT_PREFIX_PATH", "")
+        if self.install_base.exists():
+            if original_ament_prefix:
+                os.environ["AMENT_PREFIX_PATH"] = f"{self.install_base}:{original_ament_prefix}"
+            else:
+                os.environ["AMENT_PREFIX_PATH"] = str(self.install_base)
+
+        all_packages = set(initial_packages)
+        visited = set()
+        queue = set(initial_packages)
+
+        while queue:
+            pkg_name = queue.pop()
+            if pkg_name in visited:
                 continue
+            visited.add(pkg_name)
+
+            try:
+                # Get package share directory from ament_index
+                pkg_share = Path(get_package_share_directory(pkg_name))
+
+                # Parse package.xml using catkin_pkg (official ROS 2 method)
+                pkg = parse_package(str(pkg_share))
+
+                # Evaluate conditional dependencies (ROS_VERSION, etc.)
+                # This is required - evaluated_condition is None before this call
+                import os
+
+                condition_context = {**os.environ}
+                pkg.evaluate_conditions(condition_context)
+
+                # Get all build + run dependencies (matching Colcon's logic)
+                # This follows RosPackageIdentification in colcon-ros
+                deps = set()
+
+                # Add build dependencies
+                for d in pkg.build_depends:
+                    if d.evaluated_condition:  # Respect conditional dependencies
+                        deps.add(d.name)
+
+                # Add build export dependencies (transitive build deps)
+                for d in pkg.build_export_depends:
+                    if d.evaluated_condition:
+                        deps.add(d.name)
+
+                # Add exec dependencies (runtime deps)
+                for d in pkg.exec_depends:
+                    if d.evaluated_condition:
+                        deps.add(d.name)
+
+                # Add new dependencies to the queue
+                new_deps = deps - visited
+                if new_deps:
+                    logger.debug(f"{pkg_name} added transitive deps: {new_deps}")
+                    queue.update(new_deps)
+                    all_packages.update(new_deps)
+
+            except Exception as e:
+                logger.debug(f"Could not resolve dependencies for {pkg_name}: {e}")
+
+        # Restore original AMENT_PREFIX_PATH
+        if original_ament_prefix:
+            os.environ["AMENT_PREFIX_PATH"] = original_ament_prefix
+        elif "AMENT_PREFIX_PATH" in os.environ:
+            del os.environ["AMENT_PREFIX_PATH"]
+
+        return all_packages
+
+    def _filter_interface_packages(self, packages: set) -> Dict[str, Path]:
+        """Filter packages to only those with msg/srv/action interfaces.
+
+        Args:
+            packages: Set of package names
+
+        Returns:
+            Dict mapping interface package names to their share/ directory paths
+        """
+        import os
+
+        from ament_index_python.packages import get_package_share_directory
+
+        # Add workspace install directory to AMENT_PREFIX_PATH so we can find
+        # workspace-local packages
+        original_ament_prefix = os.environ.get("AMENT_PREFIX_PATH", "")
+        if self.install_base.exists():
+            if original_ament_prefix:
+                os.environ["AMENT_PREFIX_PATH"] = f"{self.install_base}:{original_ament_prefix}"
+            else:
+                os.environ["AMENT_PREFIX_PATH"] = str(self.install_base)
+
+        interface_packages = {}
+
+        for pkg_name in packages:
             try:
                 pkg_share = Path(get_package_share_directory(pkg_name))
-                if pkg_share.exists() and (pkg_share / "package.xml").exists():
-                    packages[pkg_name] = pkg_share
-            except (LookupError, OSError) as e:
-                # LookupError: Covers PackageNotFoundError and KeyError
-                # OSError: Covers file system access issues
-                logger.debug(f"Skipping package {pkg_name}: {e}")
-                continue
 
-        # 3. Check workspace install directory for packages not yet in ament_index
-        if self.install_base.exists():
-            for pkg_install in self.install_base.iterdir():
-                if not pkg_install.is_dir():
-                    continue
-                # Skip if already discovered from source (prioritize source over install)
-                if pkg_install.name in packages:
-                    continue
-                share_dir = pkg_install / "share" / pkg_install.name
-                if share_dir.exists() and (share_dir / "package.xml").exists():
-                    packages[pkg_install.name] = share_dir
+                # Check if package has interface definitions
+                has_interfaces = any(
+                    [
+                        (pkg_share / "msg").exists(),
+                        (pkg_share / "srv").exists(),
+                        (pkg_share / "action").exists(),
+                    ]
+                )
 
-        return packages
+                if has_interfaces:
+                    interface_packages[pkg_name] = pkg_share
+                    logger.debug(f"Interface package: {pkg_name}")
+                else:
+                    logger.debug(f"Skipping non-interface package: {pkg_name}")
+
+            except Exception as e:
+                logger.debug(f"Could not check {pkg_name}: {e}")
+
+        # Restore original AMENT_PREFIX_PATH
+        if original_ament_prefix:
+            os.environ["AMENT_PREFIX_PATH"] = original_ament_prefix
+        elif "AMENT_PREFIX_PATH" in os.environ:
+            del os.environ["AMENT_PREFIX_PATH"]
+
+        return interface_packages
 
     def _generate_bindings(self, ros_packages: Dict[str, Path], verbose: bool):
         """Generate Rust bindings for all ROS packages.

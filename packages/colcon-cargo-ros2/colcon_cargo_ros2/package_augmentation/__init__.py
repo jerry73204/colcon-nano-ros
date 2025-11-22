@@ -28,52 +28,48 @@ class RustBindingAugmentation(PackageAugmentationExtensionPoint):
         self._bindings_generated = False
 
     def augment_packages(self, descs, *, additional_argument_names=None):
-        """Generate workspace-level ROS 2 Rust bindings for all discovered packages.
+        """Collect all Cargo packages for dependency-aware binding generation.
 
         Args:
             descs: Collection of ALL package descriptors discovered by colcon
             additional_argument_names: Additional argument names (unused)
         """
-        # Only generate bindings once for the entire workspace
+        # Only collect packages once for the entire workspace
         if self._bindings_generated:
             return
 
-        # Collect all packages that have ROS interfaces
-        interface_packages = {}
+        # Collect ALL Cargo packages (both application and interface packages)
+        # We need to discover their ROS dependencies to know which bindings to generate
+        cargo_descriptors = {}
         for desc in descs:
             pkg_path = Path(desc.path)
 
-            # Check if package has interface definitions
-            has_interfaces = any(
-                [
-                    (pkg_path / "msg").exists(),
-                    (pkg_path / "srv").exists(),
-                    (pkg_path / "action").exists(),
-                ]
-            )
+            # Check if package has a Cargo.toml file
+            if (pkg_path / "Cargo.toml").exists():
+                # Store the FULL descriptor (includes parsed dependencies from package.xml)
+                cargo_descriptors[desc.name] = desc
+                logger.debug(f"Found Cargo package: {desc.name} at {pkg_path}")
 
-            if has_interfaces:
-                interface_packages[desc.name] = pkg_path
-                logger.debug(f"Found interface package: {desc.name} at {pkg_path}")
-
-        if not interface_packages:
-            logger.debug("No interface packages found in workspace")
+        if not cargo_descriptors:
+            logger.debug("No Cargo packages found in workspace")
             return
 
-        logger.info(f"Discovered {len(interface_packages)} interface packages via colcon")
+        logger.info(f"Discovered {len(cargo_descriptors)} Cargo packages via colcon")
 
-        # Store interface packages in generator for use during build phase
-        # The first build task will trigger actual binding generation
-        # We can't generate here because we don't have access to args/build_base yet
-        # Instead, we'll pass the discovered packages to the build task
+        # Store Cargo package descriptors for dependency discovery during build phase
+        # Each descriptor includes dependencies parsed from package.xml by Colcon
+        # We'll use these to discover which ROS interface packages need bindings
+        RustBindingAugmentation._cargo_descriptors = cargo_descriptors
 
-        # Store in a class variable that build tasks can access
-        RustBindingAugmentation._interface_packages = interface_packages
+        # Also store all descriptors for potential recursive dependency resolution
+        RustBindingAugmentation._all_descriptors = set(descs)
+
         self._bindings_generated = True
 
         # Note: We don't call super().augment_packages() because we're doing
         # workspace-level operations, not per-package augmentation
 
 
-# Class variable to share discovered packages with build tasks
-RustBindingAugmentation._interface_packages = {}
+# Class variables to share discovered packages with build tasks
+RustBindingAugmentation._cargo_descriptors = {}
+RustBindingAugmentation._all_descriptors = set()
