@@ -23,12 +23,12 @@ clean:
     rm -rf build install log
     find src -type d -name target -exec rm -rf {} + 2>/dev/null || true
 
-# Run the robot controller
+# Run the node
 run:
     #!/usr/bin/env bash
     set -e
     source install/setup.bash
-    ros2 run robot_controller robot_controller
+    ros2 run my_robot_node my_robot_node
 
 # Show info
 info:
