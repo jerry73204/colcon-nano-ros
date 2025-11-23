@@ -159,6 +159,9 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         Since bindings are generated at workspace-level, we pass --config flag
         to use the single config file in build/ros2_cargo_config.toml.
         We also use --manifest-path since cargo is invoked from workspace root.
+
+        Adds --quiet flag by default to suppress cargo progress output (matching
+        CMake/Python build behavior), unless verbose mode is enabled.
         """
         cmd = ["cargo", "build"]
 
@@ -175,6 +178,16 @@ class AmentCargoBuildTask(TaskExtensionPoint):
         # Handle None cargo_args
         if cargo_args is None:
             cargo_args = []
+
+        # Add --quiet flag unless verbose mode is enabled or user explicitly passed --verbose
+        # This suppresses "Compiling..." and "Finished..." messages but shows errors
+        args = self.context.args
+        verbose = getattr(args, "verbose", False)
+        has_verbose_flag = "--verbose" in cargo_args or "-v" in cargo_args
+        has_quiet_flag = "--quiet" in cargo_args or "-q" in cargo_args
+
+        if not verbose and not has_verbose_flag and not has_quiet_flag:
+            cmd.append("--quiet")
 
         # Add all cargo arguments
         cmd.extend(cargo_args)
