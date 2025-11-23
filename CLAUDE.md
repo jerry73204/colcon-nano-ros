@@ -109,6 +109,75 @@ just bump-version 0.4.0
 
 **CRITICAL**: After modifying code, rebuild and reinstall to see changes:
 
+#### Template Changes (Most Important!)
+
+Askama embeds templates at compile time. Simply rebuilding isn't enough - you must **clean and reinstall**:
+
+```bash
+# REQUIRED after modifying .jinja templates
+just clean-build-tools   # Clear build cache (forces template re-embedding)
+just build-python        # Rebuild wheel (includes cargo-ros2 + rosidl-bindgen)
+just install             # Install wheel with all tools
+```
+
+**Why this matters**:
+- Templates in `build-tools/rosidl-codegen/templates/*.jinja` are embedded into `rosidl-bindgen` at compile time
+- Without cleaning, Askama may use cached template artifacts
+- The Python wheel bundles the Rust tools, so `just build-python` rebuilds everything
+- Without reinstalling, the old wheel continues to be used
+
+#### Code Changes (Less Critical)
+
+For regular code changes (not templates):
+
+```bash
+just build-python    # Rebuild wheel
+just install         # Install updated wheel
+```
+
+#### Testing Workspaces
+
+**IMPORTANT**: Always use `just clean && just build` in testing workspaces if a justfile exists:
+
+```bash
+# Testing workspaces with justfiles (all 4 have them):
+# - testing_workspaces/my_robot_node/
+# - testing_workspaces/autoware_msgs_test/
+# - testing_workspaces/complex_workspace/
+# - testing_workspaces/ros2_rust_examples/
+
+cd testing_workspaces/my_robot_node
+just clean && just build
+
+# ❌ NEVER use: rm -rf build install && colcon build
+# ✅ ALWAYS use: just clean && just build
+```
+
+**Rationale**:
+- Justfiles provide consistent build commands across all testing workspaces
+- They handle proper cleanup and environment setup
+- They abstract away colcon-specific details
+- They make build commands shorter and easier to remember
+
+#### Quick Development Cycle
+
+```bash
+# 1. Make changes to code/templates
+
+# 2. Clean and rebuild (if templates changed)
+just clean-build-tools
+just build-python
+just install
+
+# 3. Test changes in workspace
+cd testing_workspaces/complex_workspace
+just clean && just build
+
+# 4. Verify results
+```
+
+**Common Mistake**: Forgetting to rebuild the wheel after making changes. The Python wheel bundles the Rust binaries, so changes won't take effect until you run `just build-python && just install`.
+
 ### `[package.metadata.ros]` Installation Support (2025-11-17)
 
 **Problem**: Rust ROS 2 packages often need to install additional files beyond binaries (launch files, config files, URDF models, RViz configs, etc.), but there was no way to specify these in Cargo.toml.
@@ -297,21 +366,39 @@ colcon build --packages-select <package>
 
 ### Temporary Files
 
-**All temporary files MUST be created in `$PROJECT_ROOT/tmp/` using Write tool:**
+**IMPORTANT**: Only create temporary files when explicitly requested by the user.
+
+**When temporary files ARE needed** (user explicitly requests them or they're necessary for task execution):
+- Create them in `$PROJECT_ROOT/tmp/` using the Write tool
+- Examples: test scripts, temporary test data, exploration/debugging files
+
+**Do NOT create**:
+- Summary documents or notes in `tmp/` unless user explicitly asks
+- Documentation files to record work completed
+- Session reports or progress tracking files
+
+**Rationale**: The `tmp/` directory should remain clean and only contain files that are truly temporary or explicitly requested by the user. Work summaries and documentation should be communicated directly to the user, not written to files.
 
 ```bash
-# ✅ CORRECT
-Write: tmp/test_data.json
-Content: {"key": "value"}
-
-Write: tmp/build_script.sh
+# ✅ CORRECT - User requested a test script
+Write: tmp/test_build.sh
 Content: |
   #!/bin/bash
   cargo build --release
 
-Bash: chmod +x tmp/build_script.sh && tmp/build_script.sh
+Bash: chmod +x tmp/test_build.sh && tmp/test_build.sh
 
-# ❌ WRONG
+# ✅ CORRECT - Needed for debugging
+Write: tmp/test_data.json
+Content: {"key": "value"}
+
+# ❌ WRONG - Unsolicited summary document
+Write: tmp/session_summary.md
+Content: |
+  # Session Summary
+  Today we completed...
+
+# ❌ WRONG - Using bash redirects instead of Write tool
 Bash: echo '{"key": "value"}' > /tmp/test_data.json
 Bash: cat > tmp/test.sh <<'EOF'
   #!/bin/bash
@@ -362,6 +449,54 @@ False,
 **Impact**: Successfully parses nav2_msgs actions (DockRobot, etc.) and other packages using capitalized booleans.
 
 **Tests**: Added `lex_capitalized_boolean_literals` test.
+
+---
+
+### Bounded Sequence Support for Services and Actions (2025-11-23)
+
+**Problem**: Service and action idiomatic templates generated incorrect code for bounded sequences, causing type mismatch errors:
+```rust
+error[E0308]: mismatched types
+  --> autoware_adapi_v1_msgs/src/srv/initialize_localization_idiomatic.rs:59:23
+   |
+59 |                   pose: crate::rosidl_runtime_rs::Sequence::from(
+   |                         ^ expected `BoundedSequence<..., 1>`, found `Sequence<_>`
+   |
+   = note: expected struct `BoundedSequence<geometry_msgs::msg::rmw::PoseWithCovarianceStamped, 1>`
+              found struct `Sequence<_>`
+```
+
+**Root Cause**: Service and action idiomatic templates were generating `Sequence::from(...)` for all sequences, not distinguishing between bounded and unbounded sequences. The RMW layer correctly used `BoundedSequence<T, N>` for bounded sequences (e.g., `geometry_msgs/PoseWithCovarianceStamped[<=1]`), but the idiomatic layer tried to convert Vec to Sequence instead of BoundedSequence.
+
+**Solution**: Updated service and action idiomatic templates to check for bounded sequences before regular sequences and use `BoundedSequence::try_from(...)` instead of `Sequence::from(...)`:
+
+```jinja
+{% else if field.is_bounded_sequence && field.is_primitive_sequence %}
+// Vec<primitive> → BoundedSequence<primitive> (use try_from)
+{{ field.name }}: crate::rosidl_runtime_rs::BoundedSequence::try_from(idiomatic.{{ field.name }}.clone()).unwrap(),
+{% else if field.is_bounded_sequence && field.is_string_sequence %}
+// Vec<String> → BoundedSequence<rosidl_runtime_rs::String> (use try_from)
+{{ field.name }}: crate::rosidl_runtime_rs::BoundedSequence::try_from(
+    idiomatic.{{ field.name }}.iter().map(|item| crate::rosidl_runtime_rs::String::from(item.as_str())).collect::<Vec<_>>()
+).unwrap(),
+{% else if field.is_bounded_sequence %}
+// Vec → BoundedSequence conversion with element conversion for nested messages (use try_from)
+{{ field.name }}: crate::rosidl_runtime_rs::BoundedSequence::try_from(
+    idiomatic.{{ field.name }}.iter().map(|item| item.into()).collect::<Vec<_>>()
+).unwrap(),
+```
+
+**Files Modified**:
+- `packages/rosidl-codegen/templates/service_idiomatic.rs.jinja` - Added bounded sequence checks for request and response
+- `packages/rosidl-codegen/templates/action_idiomatic.rs.jinja` - Added bounded sequence checks for goal, result, and feedback
+
+**Testing**:
+- Created `testing_workspaces/autoware_msgs_test` to reproduce the issue with `autoware_adapi_v1_msgs::srv::InitializeLocalization`
+- Verified fix builds successfully with Autoware ADAPI messages
+
+**Impact**: Enables proper handling of bounded sequences in services and actions, fixing compilation errors when using Autoware and other packages with bounded sequence fields.
+
+**Note**: Message idiomatic template already had correct bounded sequence handling - this fix brings service and action templates in line with message template.
 
 ---
 
@@ -522,15 +657,40 @@ Benefits:
 
 Bindings generated once at `build/ros2_bindings/`, shared by all packages:
 ```
-build/ros2_bindings/std_msgs/      # Generated once
-src/pkg1/.cargo/config.toml → ../../build/ros2_bindings/*
-src/pkg2/.cargo/config.toml → ../../build/ros2_bindings/*
+build/ros2_bindings/std_msgs/          # Generated once, shared by all packages
+build/ros2_bindings/geometry_msgs/     # Shared by all packages
+build/ros2_bindings/sensor_msgs/       # Shared by all packages
 ```
+
+**How it works**:
+- `colcon-cargo-ros2` discovers ROS dependencies from `package.xml` **ONLY**
+- Users must declare ROS interface dependencies in `<depend>` tags in package.xml
+- Generates bindings to `build/ros2_bindings/<package>/` (workspace-level)
+- Bindings are made available to Cargo through environment variables during build
+- **No `.cargo/config.toml` patches generated** - colcon-cargo-ros2 handles everything
+
+**Important**: ROS dependencies MUST be declared in package.xml, not just Cargo.toml:
+```xml
+<!-- In package.xml -->
+<depend>std_msgs</depend>
+<depend>geometry_msgs</depend>
+<depend>autoware_adapi_v1_msgs</depend>
+```
+```toml
+# In Cargo.toml (users maintain this separately)
+[dependencies]
+std_msgs = "*"
+geometry_msgs = "*"
+autoware_adapi_v1_msgs = "*"
+```
+
+If bindings fail to generate, check that the interface package is declared in package.xml. There is a validation step that will report missing interface packages.
 
 Benefits:
 - No duplication (std_msgs generated once, not per-package)
-- Faster builds
-- Smaller workspace
+- Faster builds - no Cargo patch overhead
+- Smaller workspace - no per-package .cargo directories
+- Cleaner build process - colcon-cargo-ros2 manages all binding discovery
 
 ## Testing
 
@@ -549,6 +709,23 @@ cd packages/rosidl-codegen && cargo test
 ```
 
 ### Integration Testing Workspaces
+
+**IMPORTANT**: Always use `just` commands for testing workspaces, not direct `colcon build` commands. Each testing workspace has a justfile that handles ROS environment setup and proper build sequencing.
+
+**testing_workspaces/my_robot_node** - Simple single-package workspace:
+
+Demonstrates basic ROS 2 node with standard messages:
+
+```bash
+cd testing_workspaces/my_robot_node
+just clean && just build  # Build workspace
+just run                   # Execute test binary
+```
+
+**Coverage**:
+- Single Cargo package with package.xml dependencies
+- Standard messages: std_msgs, geometry_msgs, sensor_msgs
+- Demonstrates dependency-aware binding generation (3-4 packages vs 437)
 
 **testing_workspaces/complex_workspace** - Comprehensive message type testing:
 
