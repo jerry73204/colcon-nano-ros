@@ -1,3 +1,3 @@
 [submodule "testing_workspaces/ros2_rust_examples"]
 	path = testing_workspaces/ros2_rust_examples
-	url = https://github.com/ros2-rust/examples.git
+	url = https://github.com/jerry73204/ros2_rust_examples.git
