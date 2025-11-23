@@ -764,9 +764,9 @@ Builds 31 artifacts (30 wheels + sdist) for Linux/macOS/Windows × Python 3.8-3.
 
 ## Status
 
-**Version**: v0.3.2 (2025-11-18)
+**Version**: v0.3.3 (2025-11-23)
 **Progress**: 15/20 subphases (75%) | 180 tests passing (177 Rust + 3 Python) | Zero warnings
-**Latest**: Capitalized boolean support ✅, Action constant namespacing ✅, Package version extraction ✅
+**Latest**: Documentation clarification ✅, Dependency discovery from package.xml only ✅
 **Testing**: Validated with:
 - autoware_carla_bridge (118 packages) ✅
 - splat-drive workspace (6 packages + custom interfaces) ✅
@@ -774,7 +774,7 @@ Builds 31 artifacts (30 wheels + sdist) for Linux/macOS/Windows × Python 3.8-3.
 
 **Versions**:
 - Rust workspace: v0.2.0 (rosidl-parser, rosidl-codegen, rosidl-bindgen, cargo-ros2)
-- Python package: v0.3.2 (colcon-cargo-ros2)
+- Python package: v0.3.3 (colcon-cargo-ros2)
 - Author: Lin Hsiang-Jui <jerry73204@gmail.com>
 
 **PyPI**: 31 artifacts for Linux/macOS/Windows × Python 3.8-3.13
