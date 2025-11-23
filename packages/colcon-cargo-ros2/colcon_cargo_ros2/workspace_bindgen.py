@@ -68,6 +68,9 @@ class WorkspaceBindingGenerator:
         ros_packages = self._discover_ros_packages()
         logger.info(f"Discovered {len(ros_packages)} ROS packages")
 
+        # Step 1.5: Validate Cargo.toml dependencies match package.xml
+        self._validate_cargo_dependencies(ros_packages)
+
         # Step 2: Generate bindings for all discovered packages
         self._generate_bindings(ros_packages, verbose)
 
@@ -148,6 +151,70 @@ class WorkspaceBindingGenerator:
         logger.info(f"Final interface packages to generate: {len(interface_packages)}")
 
         return interface_packages
+
+    def _validate_cargo_dependencies(self, interface_packages: Dict[str, Path]):
+        """Validate that Cargo.toml dependencies match package.xml interface packages.
+
+        Prints warnings if there are mismatches between what's declared in package.xml
+        and what's actually used in Cargo.toml.
+
+        Args:
+            interface_packages: Dict of discovered interface packages from package.xml
+        """
+        from colcon_cargo_ros2.package_augmentation import RustBindingAugmentation
+
+        cargo_descriptors = getattr(RustBindingAugmentation, "_cargo_descriptors", {})
+        logger.debug(f"Validating Cargo.toml dependencies for {len(cargo_descriptors)} packages")
+
+        for pkg_name, desc in cargo_descriptors.items():
+            pkg_path = Path(desc.path)
+            cargo_toml_path = pkg_path / "Cargo.toml"
+
+            if not cargo_toml_path.exists():
+                continue
+
+            try:
+                # Parse Cargo.toml to extract dependencies
+                # Use tomllib (Python 3.11+) or tomli (Python 3.8-3.10)
+                try:
+                    import tomllib
+                except ImportError:
+                    import tomli as tomllib
+
+                with open(cargo_toml_path, "rb") as f:
+                    cargo_data = tomllib.load(f)
+
+                # Get all dependencies from Cargo.toml (regular + build-dependencies)
+                cargo_deps = set()
+                if "dependencies" in cargo_data:
+                    cargo_deps.update(cargo_data["dependencies"].keys())
+                if "build-dependencies" in cargo_data:
+                    cargo_deps.update(cargo_data["build-dependencies"].keys())
+
+                # Get interface packages from package.xml
+                xml_deps = desc.get_dependencies(categories=["build", "run"])
+                xml_interface_deps = set(d.name for d in xml_deps if d.name in interface_packages)
+
+                # Check for interface packages in package.xml but not in Cargo.toml
+                missing_in_cargo = xml_interface_deps - cargo_deps
+                if missing_in_cargo:
+                    logger.warning(
+                        f"{pkg_name}: Interface packages in package.xml but not in Cargo.toml: "
+                        f"{', '.join(sorted(missing_in_cargo))}"
+                    )
+
+                # Check for ROS packages in Cargo.toml but not in package.xml
+                # (Only check packages that we generated bindings for)
+                extra_in_cargo = cargo_deps & set(interface_packages.keys()) - xml_interface_deps
+                if extra_in_cargo:
+                    logger.warning(
+                        f"{pkg_name}: Interface packages in Cargo.toml but not in package.xml: "
+                        f"{', '.join(sorted(extra_in_cargo))}. "
+                        "Add them to package.xml with <depend> tags."
+                    )
+
+            except Exception as e:
+                logger.debug(f"Could not validate Cargo.toml for {pkg_name}: {e}")
 
     def _find_workspace_interface_packages(self, required_packages: set):
         """Find interface packages in the workspace from source directories.
@@ -406,8 +473,9 @@ class WorkspaceBindingGenerator:
             logger.info(f"Generating bindings for {pkg_name}")
             try:
                 self._run_bindgen(pkg_name, pkg_share, pkg_build_dir, verbose)
-                # Post-process Cargo.toml to remove path dependencies
-                self._fixup_cargo_toml(pkg_name, binding_dir)
+                # Post-process generated Cargo.toml to remove path dependencies
+                # NOTE: This only modifies GENERATED bindings, not user's Cargo.toml
+                self._fixup_generated_cargo_toml(pkg_name, binding_dir)
             except RuntimeError as e:
                 # Log warning for packages that can't be generated (e.g., unsupported IDL features)
                 logger.warning(f"Skipping {pkg_name}: {e}")
@@ -440,15 +508,18 @@ class WorkspaceBindingGenerator:
             logger.error(f"Failed to generate bindings for {pkg_name}: {e}")
             raise
 
-    def _fixup_cargo_toml(self, pkg_name: str, binding_dir: Path):
-        """Post-process Cargo.toml to convert path dependencies to version requirements.
+    def _fixup_generated_cargo_toml(self, pkg_name: str, binding_dir: Path):
+        """Post-process GENERATED Cargo.toml to convert path dependencies to version requirements.
 
-        This is necessary because cargo ros2 bindgen generates bindings with local
+        This is necessary because rosidl-bindgen generates Cargo.toml with local
         path dependencies (e.g., `std_msgs = { path = "../std_msgs" }`), but we want
         to use the .cargo/config.toml patches instead.
 
+        NOTE: This ONLY modifies generated binding Cargo.toml files, NOT user's Cargo.toml files.
+        Users are responsible for maintaining their own Cargo.toml dependencies.
+
         Args:
-            pkg_name: Name of the package
+            pkg_name: Name of the ROS package
             binding_dir: Directory containing the generated bindings
         """
         # Find the Cargo.toml (nested structure: binding_dir/pkg_name/Cargo.toml)
@@ -495,7 +566,7 @@ class WorkspaceBindingGenerator:
 
         # Write back the modified Cargo.toml
         cargo_toml.write_text("\n".join(new_lines))
-        logger.debug(f"Fixed up Cargo.toml for {pkg_name}")
+        logger.debug(f"Fixed up generated Cargo.toml for {pkg_name}")
 
     def _write_cargo_config_file(self, ros_packages: Dict[str, Path]):
         """Write single Cargo config file in build/ directory with relative paths.
