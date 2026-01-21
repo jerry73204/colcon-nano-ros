@@ -18,3 +18,7 @@ pub mod msg;
 
 pub mod srv;
 {%- endif %}
+{%- if has_actions %}
+
+pub mod action;
+{%- endif %}

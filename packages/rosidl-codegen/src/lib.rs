@@ -5,10 +5,10 @@ pub mod types;
 pub mod utils;
 
 pub use generator::{
-    generate_action_package, generate_message_package, generate_nano_ros_message_package,
-    generate_nano_ros_service_package, generate_service_package, GeneratedActionPackage,
-    GeneratedNanoRosPackage, GeneratedNanoRosServicePackage, GeneratedPackage,
-    GeneratedServicePackage, GeneratorError,
+    generate_action_package, generate_message_package, generate_nano_ros_action_package,
+    generate_nano_ros_message_package, generate_nano_ros_service_package, generate_service_package,
+    GeneratedActionPackage, GeneratedNanoRosActionPackage, GeneratedNanoRosPackage,
+    GeneratedNanoRosServicePackage, GeneratedPackage, GeneratedServicePackage, GeneratorError,
 };
 pub use idl_generator::{extract_annotations, generate_idl_file, GeneratedIdlCode};
 pub use types::{

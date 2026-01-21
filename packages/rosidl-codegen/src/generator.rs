@@ -1,8 +1,9 @@
 use crate::templates::{
-    ActionIdiomaticTemplate, ActionRmwTemplate, BuildRsTemplate, CargoNanoRosTomlTemplate,
-    CargoTomlTemplate, FieldKind, IdiomaticField, LibNanoRosRsTemplate, LibRsTemplate,
-    MessageConstant, MessageIdiomaticTemplate, MessageNanoRosTemplate, MessageRmwTemplate,
-    NanoRosField, RmwField, ServiceIdiomaticTemplate, ServiceNanoRosTemplate, ServiceRmwTemplate,
+    ActionIdiomaticTemplate, ActionNanoRosTemplate, ActionRmwTemplate, BuildRsTemplate,
+    CargoNanoRosTomlTemplate, CargoTomlTemplate, FieldKind, IdiomaticField, LibNanoRosRsTemplate,
+    LibRsTemplate, MessageConstant, MessageIdiomaticTemplate, MessageNanoRosTemplate,
+    MessageRmwTemplate, NanoRosField, RmwField, ServiceIdiomaticTemplate, ServiceNanoRosTemplate,
+    ServiceRmwTemplate,
 };
 use crate::types::{
     constant_value_to_rust, escape_keyword, nano_ros_type_for_constant, nano_ros_type_for_field,
@@ -598,6 +599,7 @@ pub fn generate_nano_ros_message_package(
     let lib_rs_template = LibNanoRosRsTemplate {
         has_messages: true,
         has_services: false,
+        has_actions: false,
     };
     let lib_rs = lib_rs_template.render()?;
 
@@ -671,6 +673,7 @@ pub fn generate_nano_ros_service_package(
     let lib_rs_template = LibNanoRosRsTemplate {
         has_messages: false,
         has_services: true,
+        has_actions: false,
     };
     let lib_rs = lib_rs_template.render()?;
 
@@ -734,6 +737,143 @@ pub fn generate_nano_ros_service_package(
         cargo_toml,
         lib_rs,
         service_rs,
+    })
+}
+
+/// Generated nano-ros action package
+pub struct GeneratedNanoRosActionPackage {
+    pub cargo_toml: String,
+    pub lib_rs: String,
+    pub action_rs: String,
+}
+
+/// Generate a nano-ros action package
+pub fn generate_nano_ros_action_package(
+    package_name: &str,
+    action_name: &str,
+    action: &Action,
+    all_dependencies: &HashSet<String>,
+    package_version: &str,
+) -> Result<GeneratedNanoRosActionPackage, GeneratorError> {
+    // Extract dependencies from goal, result, and feedback
+    let mut goal_deps = extract_dependencies(&action.spec.goal);
+    let result_deps = extract_dependencies(&action.spec.result);
+    let feedback_deps = extract_dependencies(&action.spec.feedback);
+    goal_deps.extend(result_deps);
+    goal_deps.extend(feedback_deps);
+
+    // Combine with externally provided dependencies
+    let mut all_deps: Vec<String> = all_dependencies.iter().cloned().collect();
+    all_deps.extend(goal_deps);
+    all_deps.sort();
+    all_deps.dedup();
+
+    // Generate Cargo.toml
+    let cargo_toml_template = CargoNanoRosTomlTemplate {
+        package_name,
+        package_version,
+        dependencies: &all_deps,
+    };
+    let cargo_toml = cargo_toml_template.render()?;
+
+    // Generate lib.rs
+    let lib_rs_template = LibNanoRosRsTemplate {
+        has_messages: false,
+        has_services: false,
+        has_actions: true,
+    };
+    let lib_rs = lib_rs_template.render()?;
+
+    // Generate goal fields
+    let goal_fields: Vec<NanoRosField> = action
+        .spec
+        .goal
+        .fields
+        .iter()
+        .map(|f| field_to_nano_ros_field(f, package_name))
+        .collect();
+
+    let goal_constants: Vec<MessageConstant> = action
+        .spec
+        .goal
+        .constants
+        .iter()
+        .map(|c| MessageConstant {
+            name: c.name.clone(),
+            rust_type: nano_ros_type_for_constant(&c.constant_type),
+            value: constant_value_to_rust(&c.value),
+        })
+        .collect();
+
+    // Generate result fields
+    let result_fields: Vec<NanoRosField> = action
+        .spec
+        .result
+        .fields
+        .iter()
+        .map(|f| field_to_nano_ros_field(f, package_name))
+        .collect();
+
+    let result_constants: Vec<MessageConstant> = action
+        .spec
+        .result
+        .constants
+        .iter()
+        .map(|c| MessageConstant {
+            name: c.name.clone(),
+            rust_type: nano_ros_type_for_constant(&c.constant_type),
+            value: constant_value_to_rust(&c.value),
+        })
+        .collect();
+
+    // Generate feedback fields
+    let feedback_fields: Vec<NanoRosField> = action
+        .spec
+        .feedback
+        .fields
+        .iter()
+        .map(|f| field_to_nano_ros_field(f, package_name))
+        .collect();
+
+    let feedback_constants: Vec<MessageConstant> = action
+        .spec
+        .feedback
+        .constants
+        .iter()
+        .map(|c| MessageConstant {
+            name: c.name.clone(),
+            rust_type: nano_ros_type_for_constant(&c.constant_type),
+            value: constant_value_to_rust(&c.value),
+        })
+        .collect();
+
+    // For now, use a placeholder type hash
+    let type_hash = "0000000000000000000000000000000000000000000000000000000000000000";
+
+    let has_goal_fields = !goal_fields.is_empty();
+    let has_result_fields = !result_fields.is_empty();
+    let has_feedback_fields = !feedback_fields.is_empty();
+
+    let action_template = ActionNanoRosTemplate {
+        package_name,
+        action_name,
+        type_hash,
+        goal_fields,
+        goal_constants,
+        result_fields,
+        result_constants,
+        feedback_fields,
+        feedback_constants,
+        has_goal_fields,
+        has_result_fields,
+        has_feedback_fields,
+    };
+    let action_rs = action_template.render()?;
+
+    Ok(GeneratedNanoRosActionPackage {
+        cargo_toml,
+        lib_rs,
+        action_rs,
     })
 }
 
@@ -942,5 +1082,42 @@ mod tests {
 
         // Check RosService impl
         assert!(pkg.service_rs.contains("impl RosService for AddTwoInts"));
+    }
+
+    #[test]
+    fn test_nano_ros_action_generation() {
+        let action =
+            parse_action("int32 order\n---\nint32[] sequence\n---\nint32[] partial_sequence\n")
+                .unwrap();
+        let deps = HashSet::new();
+
+        let result = generate_nano_ros_action_package(
+            "example_interfaces",
+            "Fibonacci",
+            &action,
+            &deps,
+            "0.1.0",
+        );
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Check Cargo.toml
+        assert!(pkg.cargo_toml.contains("nano-ros-core"));
+
+        // Check lib.rs
+        assert!(pkg.lib_rs.contains("pub mod action"));
+
+        // Check action types
+        assert!(pkg.action_rs.contains("FibonacciGoal"));
+        assert!(pkg.action_rs.contains("FibonacciResult"));
+        assert!(pkg.action_rs.contains("FibonacciFeedback"));
+        assert!(pkg.action_rs.contains("pub order: i32"));
+
+        // Check RosAction impl
+        assert!(pkg.action_rs.contains("impl RosAction for Fibonacci"));
+        assert!(pkg.action_rs.contains("type Goal = FibonacciGoal"));
+        assert!(pkg.action_rs.contains("type Result = FibonacciResult"));
+        assert!(pkg.action_rs.contains("type Feedback = FibonacciFeedback"));
     }
 }

@@ -1,0 +1,385 @@
+// nano-ros action type - pure Rust, no_std compatible
+// Package: {{ package_name }}
+// Action: {{ action_name }}
+
+use nano_ros_core::{RosMessage, RosAction, Serialize, Deserialize};
+use nano_ros_serdes::{CdrReader, CdrWriter, SerError, DeserError};
+
+// ============================================================================
+// Goal Message
+// ============================================================================
+
+{%- for constant in goal_constants %}
+pub const {{ action_name|snake_case|upper }}_GOAL_{{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+{%- endfor %}
+
+/// {{ action_name }} goal message
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct {{ action_name }}Goal {
+{%- for field in goal_fields %}
+    pub {{ field.name }}: {{ field.rust_type }},
+{%- endfor %}
+}
+
+impl Serialize for {{ action_name }}Goal {
+{%- if has_goal_fields %}
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+{%- for field in goal_fields %}
+{%- if field.is_primitive %}
+        writer.write_{{ field.primitive_method }}(self.{{ field.name }})?;
+{%- else if field.is_string %}
+        writer.write_string(self.{{ field.name }}.as_str())?;
+{%- else if field.is_array %}
+        for item in &self.{{ field.name }} {
+{%- if field.is_primitive_element %}
+            writer.write_{{ field.element_primitive_method }}(*item)?;
+{%- else if field.is_string_element %}
+            writer.write_string(item.as_str())?;
+{%- else %}
+            item.serialize(writer)?;
+{%- endif %}
+        }
+{%- else if field.is_sequence %}
+        writer.write_u32(self.{{ field.name }}.len() as u32)?;
+        for item in &self.{{ field.name }} {
+{%- if field.is_primitive_element %}
+            writer.write_{{ field.element_primitive_method }}(*item)?;
+{%- else if field.is_string_element %}
+            writer.write_string(item.as_str())?;
+{%- else %}
+            item.serialize(writer)?;
+{%- endif %}
+        }
+{%- else %}
+        self.{{ field.name }}.serialize(writer)?;
+{%- endif %}
+{%- endfor %}
+        Ok(())
+    }
+{%- else %}
+    // Empty goal - no fields to serialize
+    fn serialize(&self, _writer: &mut CdrWriter) -> Result<(), SerError> {
+        Ok(())
+    }
+{%- endif %}
+}
+
+impl Deserialize for {{ action_name }}Goal {
+{%- if has_goal_fields %}
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {
+{%- for field in goal_fields %}
+{%- if field.is_primitive %}
+            {{ field.name }}: reader.read_{{ field.primitive_method }}()?,
+{%- else if field.is_string %}
+            {{ field.name }}: {
+                let s = reader.read_string()?;
+                heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+            },
+{%- else if field.is_array %}
+            {{ field.name }}: {
+                let mut arr: {{ field.rust_type }} = Default::default();
+                for i in 0..{{ field.array_size }} {
+{%- if field.is_primitive_element %}
+                    arr[i] = reader.read_{{ field.element_primitive_method }}()?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+                    arr[i] = heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    arr[i] = Deserialize::deserialize(reader)?;
+{%- endif %}
+                }
+                arr
+            },
+{%- else if field.is_sequence %}
+            {{ field.name }}: {
+                let len = reader.read_u32()? as usize;
+                let mut vec = heapless::Vec::new();
+                for _ in 0..len {
+{%- if field.is_primitive_element %}
+                    vec.push(reader.read_{{ field.element_primitive_method }}()?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+                    vec.push(heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    vec.push(Deserialize::deserialize(reader)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+                }
+                vec
+            },
+{%- else %}
+            {{ field.name }}: Deserialize::deserialize(reader)?,
+{%- endif %}
+{%- endfor %}
+        })
+    }
+{%- else %}
+    // Empty goal - no fields to deserialize
+    fn deserialize(_reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {})
+    }
+{%- endif %}
+}
+
+impl RosMessage for {{ action_name }}Goal {
+    const TYPE_NAME: &'static str = "{{ package_name }}::action::dds_::{{ action_name }}_Goal_";
+    const TYPE_HASH: &'static str = "RIHS01_{{ type_hash }}";
+}
+
+// ============================================================================
+// Result Message
+// ============================================================================
+
+{%- for constant in result_constants %}
+pub const {{ action_name|snake_case|upper }}_RESULT_{{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+{%- endfor %}
+
+/// {{ action_name }} result message
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct {{ action_name }}Result {
+{%- for field in result_fields %}
+    pub {{ field.name }}: {{ field.rust_type }},
+{%- endfor %}
+}
+
+impl Serialize for {{ action_name }}Result {
+{%- if has_result_fields %}
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+{%- for field in result_fields %}
+{%- if field.is_primitive %}
+        writer.write_{{ field.primitive_method }}(self.{{ field.name }})?;
+{%- else if field.is_string %}
+        writer.write_string(self.{{ field.name }}.as_str())?;
+{%- else if field.is_array %}
+        for item in &self.{{ field.name }} {
+{%- if field.is_primitive_element %}
+            writer.write_{{ field.element_primitive_method }}(*item)?;
+{%- else if field.is_string_element %}
+            writer.write_string(item.as_str())?;
+{%- else %}
+            item.serialize(writer)?;
+{%- endif %}
+        }
+{%- else if field.is_sequence %}
+        writer.write_u32(self.{{ field.name }}.len() as u32)?;
+        for item in &self.{{ field.name }} {
+{%- if field.is_primitive_element %}
+            writer.write_{{ field.element_primitive_method }}(*item)?;
+{%- else if field.is_string_element %}
+            writer.write_string(item.as_str())?;
+{%- else %}
+            item.serialize(writer)?;
+{%- endif %}
+        }
+{%- else %}
+        self.{{ field.name }}.serialize(writer)?;
+{%- endif %}
+{%- endfor %}
+        Ok(())
+    }
+{%- else %}
+    // Empty result - no fields to serialize
+    fn serialize(&self, _writer: &mut CdrWriter) -> Result<(), SerError> {
+        Ok(())
+    }
+{%- endif %}
+}
+
+impl Deserialize for {{ action_name }}Result {
+{%- if has_result_fields %}
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {
+{%- for field in result_fields %}
+{%- if field.is_primitive %}
+            {{ field.name }}: reader.read_{{ field.primitive_method }}()?,
+{%- else if field.is_string %}
+            {{ field.name }}: {
+                let s = reader.read_string()?;
+                heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+            },
+{%- else if field.is_array %}
+            {{ field.name }}: {
+                let mut arr: {{ field.rust_type }} = Default::default();
+                for i in 0..{{ field.array_size }} {
+{%- if field.is_primitive_element %}
+                    arr[i] = reader.read_{{ field.element_primitive_method }}()?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+                    arr[i] = heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    arr[i] = Deserialize::deserialize(reader)?;
+{%- endif %}
+                }
+                arr
+            },
+{%- else if field.is_sequence %}
+            {{ field.name }}: {
+                let len = reader.read_u32()? as usize;
+                let mut vec = heapless::Vec::new();
+                for _ in 0..len {
+{%- if field.is_primitive_element %}
+                    vec.push(reader.read_{{ field.element_primitive_method }}()?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+                    vec.push(heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    vec.push(Deserialize::deserialize(reader)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+                }
+                vec
+            },
+{%- else %}
+            {{ field.name }}: Deserialize::deserialize(reader)?,
+{%- endif %}
+{%- endfor %}
+        })
+    }
+{%- else %}
+    // Empty result - no fields to deserialize
+    fn deserialize(_reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {})
+    }
+{%- endif %}
+}
+
+impl RosMessage for {{ action_name }}Result {
+    const TYPE_NAME: &'static str = "{{ package_name }}::action::dds_::{{ action_name }}_Result_";
+    const TYPE_HASH: &'static str = "RIHS01_{{ type_hash }}";
+}
+
+// ============================================================================
+// Feedback Message
+// ============================================================================
+
+{%- for constant in feedback_constants %}
+pub const {{ action_name|snake_case|upper }}_FEEDBACK_{{ constant.name }}: {{ constant.rust_type }} = {{ constant.value }};
+{%- endfor %}
+
+/// {{ action_name }} feedback message
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct {{ action_name }}Feedback {
+{%- for field in feedback_fields %}
+    pub {{ field.name }}: {{ field.rust_type }},
+{%- endfor %}
+}
+
+impl Serialize for {{ action_name }}Feedback {
+{%- if has_feedback_fields %}
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+{%- for field in feedback_fields %}
+{%- if field.is_primitive %}
+        writer.write_{{ field.primitive_method }}(self.{{ field.name }})?;
+{%- else if field.is_string %}
+        writer.write_string(self.{{ field.name }}.as_str())?;
+{%- else if field.is_array %}
+        for item in &self.{{ field.name }} {
+{%- if field.is_primitive_element %}
+            writer.write_{{ field.element_primitive_method }}(*item)?;
+{%- else if field.is_string_element %}
+            writer.write_string(item.as_str())?;
+{%- else %}
+            item.serialize(writer)?;
+{%- endif %}
+        }
+{%- else if field.is_sequence %}
+        writer.write_u32(self.{{ field.name }}.len() as u32)?;
+        for item in &self.{{ field.name }} {
+{%- if field.is_primitive_element %}
+            writer.write_{{ field.element_primitive_method }}(*item)?;
+{%- else if field.is_string_element %}
+            writer.write_string(item.as_str())?;
+{%- else %}
+            item.serialize(writer)?;
+{%- endif %}
+        }
+{%- else %}
+        self.{{ field.name }}.serialize(writer)?;
+{%- endif %}
+{%- endfor %}
+        Ok(())
+    }
+{%- else %}
+    // Empty feedback - no fields to serialize
+    fn serialize(&self, _writer: &mut CdrWriter) -> Result<(), SerError> {
+        Ok(())
+    }
+{%- endif %}
+}
+
+impl Deserialize for {{ action_name }}Feedback {
+{%- if has_feedback_fields %}
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {
+{%- for field in feedback_fields %}
+{%- if field.is_primitive %}
+            {{ field.name }}: reader.read_{{ field.primitive_method }}()?,
+{%- else if field.is_string %}
+            {{ field.name }}: {
+                let s = reader.read_string()?;
+                heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+            },
+{%- else if field.is_array %}
+            {{ field.name }}: {
+                let mut arr: {{ field.rust_type }} = Default::default();
+                for i in 0..{{ field.array_size }} {
+{%- if field.is_primitive_element %}
+                    arr[i] = reader.read_{{ field.element_primitive_method }}()?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+                    arr[i] = heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    arr[i] = Deserialize::deserialize(reader)?;
+{%- endif %}
+                }
+                arr
+            },
+{%- else if field.is_sequence %}
+            {{ field.name }}: {
+                let len = reader.read_u32()? as usize;
+                let mut vec = heapless::Vec::new();
+                for _ in 0..len {
+{%- if field.is_primitive_element %}
+                    vec.push(reader.read_{{ field.element_primitive_method }}()?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+                    vec.push(heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    vec.push(Deserialize::deserialize(reader)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+                }
+                vec
+            },
+{%- else %}
+            {{ field.name }}: Deserialize::deserialize(reader)?,
+{%- endif %}
+{%- endfor %}
+        })
+    }
+{%- else %}
+    // Empty feedback - no fields to deserialize
+    fn deserialize(_reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {})
+    }
+{%- endif %}
+}
+
+impl RosMessage for {{ action_name }}Feedback {
+    const TYPE_NAME: &'static str = "{{ package_name }}::action::dds_::{{ action_name }}_Feedback_";
+    const TYPE_HASH: &'static str = "RIHS01_{{ type_hash }}";
+}
+
+// ============================================================================
+// Action Definition
+// ============================================================================
+
+/// {{ action_name }} action definition
+pub struct {{ action_name }};
+
+impl RosAction for {{ action_name }} {
+    type Goal = {{ action_name }}Goal;
+    type Result = {{ action_name }}Result;
+    type Feedback = {{ action_name }}Feedback;
+
+    const ACTION_NAME: &'static str = "{{ package_name }}::action::dds_::{{ action_name }}_";
+    const ACTION_HASH: &'static str = "RIHS01_{{ type_hash }}";
+}

@@ -11,7 +11,8 @@
 use crate::ament::Package;
 use eyre::{Result, WrapErr};
 use rosidl_codegen::{
-    generate_nano_ros_message_package, generate_nano_ros_service_package,
+    generate_nano_ros_action_package, generate_nano_ros_message_package,
+    generate_nano_ros_service_package,
     utils::{extract_dependencies, to_snake_case},
 };
 use std::collections::HashSet;
@@ -22,6 +23,7 @@ use std::path::{Path, PathBuf};
 /// Single-layer architecture with pure Rust, no_std compatible types:
 /// - `pkg::msg::Type` - Message types using heapless collections
 /// - `pkg::srv::Type` - Service request/response types
+/// - `pkg::action::Type` - Action Goal/Result/Feedback types
 #[derive(Debug)]
 pub struct GeneratedRustPackage {
     /// Package name
@@ -32,7 +34,7 @@ pub struct GeneratedRustPackage {
     pub message_count: usize,
     /// Number of services generated
     pub service_count: usize,
-    /// Number of actions generated (always 0 for nano-ros, not yet supported)
+    /// Number of actions generated
     pub action_count: usize,
 }
 
@@ -122,6 +124,46 @@ pub fn generate_package(package: &Package, output_dir: &Path) -> Result<Generate
         }
     }
 
+    // Create src/action directory if needed
+    let mut action_count = 0;
+    if !package.interfaces.actions.is_empty() {
+        let action_dir = src_dir.join("action");
+        std::fs::create_dir_all(&action_dir)?;
+
+        // Generate actions
+        for action_name in &package.interfaces.actions {
+            let action_path = package.get_action_path(action_name);
+            let content = std::fs::read_to_string(&action_path).wrap_err_with(|| {
+                format!("Failed to read action file: {}", action_path.display())
+            })?;
+
+            let parsed_action = rosidl_parser::parse_action(&content)
+                .wrap_err_with(|| format!("Failed to parse action: {}", action_name))?;
+
+            // Extract dependencies from goal, result, and feedback
+            let goal_deps = extract_dependencies(&parsed_action.spec.goal);
+            let result_deps = extract_dependencies(&parsed_action.spec.result);
+            let feedback_deps = extract_dependencies(&parsed_action.spec.feedback);
+            all_dependencies.extend(goal_deps);
+            all_dependencies.extend(result_deps);
+            all_dependencies.extend(feedback_deps);
+
+            let generated = generate_nano_ros_action_package(
+                &package.name,
+                action_name,
+                &parsed_action,
+                &all_dependencies,
+                &package.version,
+            )
+            .wrap_err_with(|| format!("Failed to generate nano-ros action: {}", action_name))?;
+
+            // Write action file
+            let action_file = action_dir.join(format!("{}.rs", to_snake_case(action_name)));
+            std::fs::write(&action_file, &generated.action_rs)?;
+            action_count += 1;
+        }
+    }
+
     // Remove self-dependency
     all_dependencies.remove(&package.name);
 
@@ -132,6 +174,12 @@ pub fn generate_package(package: &Package, output_dir: &Path) -> Result<Generate
     if !package.interfaces.services.is_empty() {
         let srv_dir = src_dir.join("srv");
         generate_srv_mod_rs(&srv_dir, package)?;
+    }
+
+    // Generate action/mod.rs if there are actions
+    if !package.interfaces.actions.is_empty() {
+        let action_dir = src_dir.join("action");
+        generate_action_mod_rs(&action_dir, package)?;
     }
 
     // Generate lib.rs
@@ -150,7 +198,7 @@ pub fn generate_package(package: &Package, output_dir: &Path) -> Result<Generate
         output_dir: package_output,
         message_count,
         service_count,
-        action_count: 0, // Actions not yet supported for nano-ros
+        action_count,
     })
 }
 
@@ -188,6 +236,25 @@ fn generate_srv_mod_rs(srv_dir: &Path, package: &Package) -> Result<()> {
     Ok(())
 }
 
+/// Generate action/mod.rs for nano-ros
+fn generate_action_mod_rs(action_dir: &Path, package: &Package) -> Result<()> {
+    let mut content = String::new();
+    content.push_str("//! Action types for this package\n\n");
+
+    for action_name in &package.interfaces.actions {
+        let module_name = to_snake_case(action_name);
+        content.push_str(&format!("mod {};\n", module_name));
+        // Export the action struct and message types
+        content.push_str(&format!(
+            "pub use {}::{{{}, {}Goal, {}Result, {}Feedback}};\n\n",
+            module_name, action_name, action_name, action_name, action_name
+        ));
+    }
+
+    std::fs::write(action_dir.join("mod.rs"), content)?;
+    Ok(())
+}
+
 /// Generate lib.rs for nano-ros
 fn generate_lib_rs(src_dir: &Path, package: &Package) -> Result<()> {
     let mut content = String::new();
@@ -201,6 +268,9 @@ fn generate_lib_rs(src_dir: &Path, package: &Package) -> Result<()> {
     }
     if !package.interfaces.services.is_empty() {
         content.push_str("pub mod srv;\n");
+    }
+    if !package.interfaces.actions.is_empty() {
+        content.push_str("pub mod action;\n");
     }
 
     std::fs::write(src_dir.join("lib.rs"), content)?;

@@ -221,4 +221,25 @@ pub struct CargoNanoRosTomlTemplate<'a> {
 pub struct LibNanoRosRsTemplate {
     pub has_messages: bool,
     pub has_services: bool,
+    pub has_actions: bool,
+}
+
+#[derive(Template)]
+#[template(path = "action_nano_ros.rs.jinja", escape = "none")]
+pub struct ActionNanoRosTemplate<'a> {
+    pub package_name: &'a str,
+    pub action_name: &'a str,
+    pub type_hash: &'a str,
+    pub goal_fields: Vec<NanoRosField>,
+    pub goal_constants: Vec<MessageConstant>,
+    pub result_fields: Vec<NanoRosField>,
+    pub result_constants: Vec<MessageConstant>,
+    pub feedback_fields: Vec<NanoRosField>,
+    pub feedback_constants: Vec<MessageConstant>,
+    /// True if goal has fields to serialize/deserialize
+    pub has_goal_fields: bool,
+    /// True if result has fields to serialize/deserialize
+    pub has_result_fields: bool,
+    /// True if feedback has fields to serialize/deserialize
+    pub has_feedback_fields: bool,
 }
