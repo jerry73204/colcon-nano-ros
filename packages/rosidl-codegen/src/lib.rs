@@ -5,16 +5,20 @@ pub mod types;
 pub mod utils;
 
 pub use generator::{
-    generate_action_package, generate_message_package, generate_nano_ros_action_package,
+    generate_action_package, generate_c_action_package, generate_c_message_package,
+    generate_c_service_package, generate_message_package, generate_nano_ros_action_package,
     generate_nano_ros_message_package, generate_nano_ros_service_package, generate_service_package,
-    GeneratedActionPackage, GeneratedNanoRosActionPackage, GeneratedNanoRosPackage,
-    GeneratedNanoRosServicePackage, GeneratedPackage, GeneratedServicePackage, GeneratorError,
+    GeneratedActionPackage, GeneratedCActionPackage, GeneratedCPackage, GeneratedCServicePackage,
+    GeneratedNanoRosActionPackage, GeneratedNanoRosPackage, GeneratedNanoRosServicePackage,
+    GeneratedPackage, GeneratedServicePackage, GeneratorError,
 };
 pub use idl_generator::{extract_annotations, generate_idl_file, GeneratedIdlCode};
 pub use types::{
-    escape_keyword, idl_constant_value_to_rust, nano_ros_type_for_constant,
-    nano_ros_type_for_field, rust_type_for_field, rust_type_for_idl, rust_type_for_idl_constant,
-    CodegenBackend, FieldTypeExt, IdlTypeExt, NANO_ROS_DEFAULT_SEQUENCE_CAPACITY,
+    c_array_suffix_for_field, c_type_for_constant, c_type_for_field, escape_keyword,
+    idl_constant_value_to_rust, nano_ros_type_for_constant, nano_ros_type_for_field,
+    rust_type_for_field, rust_type_for_idl, rust_type_for_idl_constant, to_c_package_name,
+    CodegenBackend, FieldTypeExt, IdlTypeExt, C_DEFAULT_SEQUENCE_CAPACITY,
+    C_DEFAULT_STRING_CAPACITY, NANO_ROS_DEFAULT_SEQUENCE_CAPACITY,
     NANO_ROS_DEFAULT_STRING_CAPACITY,
 };
 

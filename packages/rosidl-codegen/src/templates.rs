@@ -243,3 +243,156 @@ pub struct ActionNanoRosTemplate<'a> {
     /// True if feedback has fields to serialize/deserialize
     pub has_feedback_fields: bool,
 }
+
+// ============================================================================
+// C Templates (for nano-ros-c)
+// ============================================================================
+
+/// Field information for C code generation
+#[derive(Clone)]
+pub struct CField {
+    pub name: String,
+    /// Base C type (e.g., "int32_t", "char", "struct foo_msg")
+    pub c_type: String,
+    /// Array suffix for the field declaration (e.g., "[256]" for strings, "[3]" for arrays)
+    /// This comes after the field name in C: `char name[256];`
+    pub array_suffix: String,
+    /// CDR write method name (e.g., "write_i32")
+    pub cdr_write_method: String,
+    /// CDR read method name (e.g., "read_i32")
+    pub cdr_read_method: String,
+    /// For arrays/sequences: element CDR write method
+    pub element_cdr_write_method: String,
+    /// For arrays/sequences: element CDR read method
+    pub element_cdr_read_method: String,
+    /// Array size for fixed arrays - 0 if not an array
+    pub array_size: usize,
+    /// Sequence capacity for bounded/unbounded sequences
+    pub sequence_capacity: usize,
+    /// Nested struct name (for nested messages)
+    pub nested_struct_name: String,
+    /// Element struct name (for arrays/sequences of nested messages)
+    pub element_struct_name: String,
+
+    // Type flags for template conditionals
+    pub is_primitive: bool,
+    pub is_string: bool,
+    pub is_array: bool,
+    pub is_sequence: bool,
+    pub is_nested: bool,
+    pub is_primitive_element: bool,
+    pub is_string_element: bool,
+}
+
+/// Constant for C code generation
+pub struct CConstant {
+    pub name: String,
+    pub c_type: String,
+    pub value: String,
+}
+
+#[derive(Template)]
+#[template(path = "message_c.h.jinja", escape = "none")]
+pub struct MessageCHeaderTemplate<'a> {
+    pub package_name: &'a str,
+    pub message_name: &'a str,
+    pub type_hash: &'a str,
+    pub guard_name: String,
+    pub struct_name: String,
+    pub constant_prefix: String,
+    pub fields: Vec<CField>,
+    pub constants: Vec<CConstant>,
+    pub dependencies: Vec<String>,
+    pub has_fields: bool,
+}
+
+#[derive(Template)]
+#[template(path = "message_c.c.jinja", escape = "none")]
+pub struct MessageCSourceTemplate<'a> {
+    pub package_name: &'a str,
+    pub message_name: &'a str,
+    pub type_hash: &'a str,
+    pub header_name: String,
+    pub struct_name: String,
+    pub fields: Vec<CField>,
+    pub has_fields: bool,
+}
+
+#[derive(Template)]
+#[template(path = "service_c.h.jinja", escape = "none")]
+pub struct ServiceCHeaderTemplate<'a> {
+    pub package_name: &'a str,
+    pub service_name: &'a str,
+    pub type_hash: &'a str,
+    pub guard_name: String,
+    pub service_struct_name: String,
+    pub request_struct_name: String,
+    pub response_struct_name: String,
+    pub constant_prefix: String,
+    pub request_fields: Vec<CField>,
+    pub request_constants: Vec<CConstant>,
+    pub response_fields: Vec<CField>,
+    pub response_constants: Vec<CConstant>,
+    pub dependencies: Vec<String>,
+    pub has_request_fields: bool,
+    pub has_response_fields: bool,
+}
+
+#[derive(Template)]
+#[template(path = "service_c.c.jinja", escape = "none")]
+pub struct ServiceCSourceTemplate<'a> {
+    pub package_name: &'a str,
+    pub service_name: &'a str,
+    pub type_hash: &'a str,
+    pub header_name: String,
+    pub service_struct_name: String,
+    pub request_struct_name: String,
+    pub response_struct_name: String,
+    pub request_fields: Vec<CField>,
+    pub response_fields: Vec<CField>,
+    pub has_request_fields: bool,
+    pub has_response_fields: bool,
+}
+
+#[derive(Template)]
+#[template(path = "action_c.h.jinja", escape = "none")]
+pub struct ActionCHeaderTemplate<'a> {
+    pub package_name: &'a str,
+    pub action_name: &'a str,
+    pub type_hash: &'a str,
+    pub guard_name: String,
+    pub action_struct_name: String,
+    pub goal_struct_name: String,
+    pub result_struct_name: String,
+    pub feedback_struct_name: String,
+    pub constant_prefix: String,
+    pub goal_fields: Vec<CField>,
+    pub goal_constants: Vec<CConstant>,
+    pub result_fields: Vec<CField>,
+    pub result_constants: Vec<CConstant>,
+    pub feedback_fields: Vec<CField>,
+    pub feedback_constants: Vec<CConstant>,
+    pub dependencies: Vec<String>,
+    pub has_goal_fields: bool,
+    pub has_result_fields: bool,
+    pub has_feedback_fields: bool,
+}
+
+#[derive(Template)]
+#[template(path = "action_c.c.jinja", escape = "none")]
+pub struct ActionCSourceTemplate<'a> {
+    pub package_name: &'a str,
+    pub action_name: &'a str,
+    pub type_hash: &'a str,
+    pub header_name: String,
+    pub action_struct_name: String,
+    pub goal_struct_name: String,
+    pub result_struct_name: String,
+    pub feedback_struct_name: String,
+    pub goal_fields: Vec<CField>,
+    pub result_fields: Vec<CField>,
+    pub feedback_fields: Vec<CField>,
+    pub has_goal_fields: bool,
+    pub has_result_fields: bool,
+    pub has_feedback_fields: bool,
+}

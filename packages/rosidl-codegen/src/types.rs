@@ -865,3 +865,161 @@ pub fn annotation_value_to_constant_value(
         }
     }
 }
+
+// ============================================================================
+// C Type Mapping (for nano-ros-c)
+// ============================================================================
+
+/// Default string capacity for C strings (matches nano-ros-c)
+pub const C_DEFAULT_STRING_CAPACITY: usize = 256;
+
+/// Default sequence capacity for C arrays
+pub const C_DEFAULT_SEQUENCE_CAPACITY: usize = 64;
+
+/// Get the C base type string for a field type (without array suffix)
+/// For array declarations in C, the array suffix comes after the variable name.
+/// Use `c_array_suffix_for_field` to get the suffix.
+pub fn c_type_for_field(field_type: &FieldType, _current_package: Option<&str>) -> String {
+    match field_type {
+        FieldType::Primitive(prim) => c_primitive_type(prim),
+
+        // Strings use char as base type, with array suffix for the size
+        FieldType::String | FieldType::BoundedString(_) => "char".to_string(),
+
+        FieldType::WString | FieldType::BoundedWString(_) => "char".to_string(),
+
+        // Arrays use the element type as base type, with array suffix for the size
+        FieldType::Array { element_type, .. } => c_type_for_field(element_type, None),
+
+        // Sequences use anonymous struct
+        FieldType::Sequence { element_type } => {
+            let elem = c_type_for_field(element_type, None);
+            let elem_suffix = c_array_suffix_for_field(element_type);
+            format!(
+                "struct {{ uint32_t size; {} data{}[{}]; }}",
+                elem, elem_suffix, C_DEFAULT_SEQUENCE_CAPACITY
+            )
+        }
+
+        FieldType::BoundedSequence {
+            element_type,
+            max_size,
+        } => {
+            let elem = c_type_for_field(element_type, None);
+            let elem_suffix = c_array_suffix_for_field(element_type);
+            format!(
+                "struct {{ uint32_t size; {} data{}[{}]; }}",
+                elem, elem_suffix, max_size
+            )
+        }
+
+        FieldType::NamespacedType { package, name } => {
+            if let Some(pkg) = package {
+                format!(
+                    "struct {}_msg_{}",
+                    to_c_package_name(pkg),
+                    to_snake_case(name)
+                )
+            } else {
+                format!("struct msg_{}", to_snake_case(name))
+            }
+        }
+    }
+}
+
+/// Get the C array suffix for a field type (e.g., "[256]" for strings, "[3]" for arrays)
+/// This comes after the field name in C declarations: `char name[256];`
+pub fn c_array_suffix_for_field(field_type: &FieldType) -> String {
+    match field_type {
+        FieldType::String => format!("[{}]", C_DEFAULT_STRING_CAPACITY),
+        FieldType::BoundedString(size) => format!("[{}]", size),
+        FieldType::WString => format!("[{}]", C_DEFAULT_STRING_CAPACITY),
+        FieldType::BoundedWString(size) => format!("[{}]", size),
+        FieldType::Array { element_type, size } => {
+            // For nested arrays (rare), we need to combine suffixes
+            let inner_suffix = c_array_suffix_for_field(element_type);
+            format!("[{}]{}", size, inner_suffix)
+        }
+        // Sequences and other types don't have array suffixes (they're inline structs or scalars)
+        _ => String::new(),
+    }
+}
+
+/// Convert a primitive type to its C equivalent
+fn c_primitive_type(prim: &rosidl_parser::PrimitiveType) -> String {
+    use rosidl_parser::PrimitiveType;
+    match prim {
+        PrimitiveType::Bool => "bool".to_string(),
+        PrimitiveType::Byte => "uint8_t".to_string(),
+        PrimitiveType::Char => "char".to_string(),
+        PrimitiveType::Int8 => "int8_t".to_string(),
+        PrimitiveType::Int16 => "int16_t".to_string(),
+        PrimitiveType::Int32 => "int32_t".to_string(),
+        PrimitiveType::Int64 => "int64_t".to_string(),
+        PrimitiveType::UInt8 => "uint8_t".to_string(),
+        PrimitiveType::UInt16 => "uint16_t".to_string(),
+        PrimitiveType::UInt32 => "uint32_t".to_string(),
+        PrimitiveType::UInt64 => "uint64_t".to_string(),
+        PrimitiveType::Float32 => "float".to_string(),
+        PrimitiveType::Float64 => "double".to_string(),
+    }
+}
+
+/// Convert package name to C-compatible identifier (replace - with _)
+pub fn to_c_package_name(name: &str) -> String {
+    name.replace('-', "_")
+}
+
+/// Get the C type string for a constant
+pub fn c_type_for_constant(field_type: &FieldType) -> String {
+    match field_type {
+        FieldType::Primitive(prim) => c_primitive_type(prim),
+        // String constants are const char*
+        FieldType::String
+        | FieldType::BoundedString(_)
+        | FieldType::WString
+        | FieldType::BoundedWString(_) => "const char*".to_string(),
+        // Arrays and sequences shouldn't normally be constants
+        _ => "void*".to_string(),
+    }
+}
+
+/// Get the CDR write method name for a C primitive type
+pub fn c_cdr_write_method(prim: &rosidl_parser::PrimitiveType) -> &'static str {
+    use rosidl_parser::PrimitiveType;
+    match prim {
+        PrimitiveType::Bool => "write_bool",
+        PrimitiveType::Byte => "write_u8",
+        PrimitiveType::Char => "write_u8",
+        PrimitiveType::Int8 => "write_i8",
+        PrimitiveType::Int16 => "write_i16",
+        PrimitiveType::Int32 => "write_i32",
+        PrimitiveType::Int64 => "write_i64",
+        PrimitiveType::UInt8 => "write_u8",
+        PrimitiveType::UInt16 => "write_u16",
+        PrimitiveType::UInt32 => "write_u32",
+        PrimitiveType::UInt64 => "write_u64",
+        PrimitiveType::Float32 => "write_f32",
+        PrimitiveType::Float64 => "write_f64",
+    }
+}
+
+/// Get the CDR read method name for a C primitive type
+pub fn c_cdr_read_method(prim: &rosidl_parser::PrimitiveType) -> &'static str {
+    use rosidl_parser::PrimitiveType;
+    match prim {
+        PrimitiveType::Bool => "read_bool",
+        PrimitiveType::Byte => "read_u8",
+        PrimitiveType::Char => "read_u8",
+        PrimitiveType::Int8 => "read_i8",
+        PrimitiveType::Int16 => "read_i16",
+        PrimitiveType::Int32 => "read_i32",
+        PrimitiveType::Int64 => "read_i64",
+        PrimitiveType::UInt8 => "read_u8",
+        PrimitiveType::UInt16 => "read_u16",
+        PrimitiveType::UInt32 => "read_u32",
+        PrimitiveType::UInt64 => "read_u64",
+        PrimitiveType::Float32 => "read_f32",
+        PrimitiveType::Float64 => "read_f64",
+    }
+}

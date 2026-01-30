@@ -1,13 +1,16 @@
 use crate::templates::{
-    ActionIdiomaticTemplate, ActionNanoRosTemplate, ActionRmwTemplate, BuildRsTemplate,
-    CargoNanoRosTomlTemplate, CargoTomlTemplate, FieldKind, IdiomaticField, LibNanoRosRsTemplate,
-    LibRsTemplate, MessageConstant, MessageIdiomaticTemplate, MessageNanoRosTemplate,
-    MessageRmwTemplate, NanoRosField, RmwField, ServiceIdiomaticTemplate, ServiceNanoRosTemplate,
-    ServiceRmwTemplate,
+    ActionCHeaderTemplate, ActionCSourceTemplate, ActionIdiomaticTemplate, ActionNanoRosTemplate,
+    ActionRmwTemplate, BuildRsTemplate, CConstant, CField, CargoNanoRosTomlTemplate,
+    CargoTomlTemplate, FieldKind, IdiomaticField, LibNanoRosRsTemplate, LibRsTemplate,
+    MessageCHeaderTemplate, MessageCSourceTemplate, MessageConstant, MessageIdiomaticTemplate,
+    MessageNanoRosTemplate, MessageRmwTemplate, NanoRosField, RmwField, ServiceCHeaderTemplate,
+    ServiceCSourceTemplate, ServiceIdiomaticTemplate, ServiceNanoRosTemplate, ServiceRmwTemplate,
 };
 use crate::types::{
-    constant_value_to_rust, escape_keyword, nano_ros_type_for_constant, nano_ros_type_for_field,
-    rust_type_for_constant, rust_type_for_field,
+    c_array_suffix_for_field, c_cdr_read_method, c_cdr_write_method, c_type_for_constant,
+    c_type_for_field, constant_value_to_rust, escape_keyword, nano_ros_type_for_constant,
+    nano_ros_type_for_field, rust_type_for_constant, rust_type_for_field, to_c_package_name,
+    C_DEFAULT_SEQUENCE_CAPACITY,
 };
 use crate::utils::{extract_dependencies, needs_big_array, to_snake_case};
 use askama::Template;
@@ -877,6 +880,558 @@ pub fn generate_nano_ros_action_package(
     })
 }
 
+// ============================================================================
+// C Code Generation (for nano-ros-c)
+// ============================================================================
+
+/// Generated C message package
+pub struct GeneratedCPackage {
+    /// Header file content (.h)
+    pub header: String,
+    /// Source file content (.c)
+    pub source: String,
+    /// Header filename
+    pub header_name: String,
+    /// Source filename
+    pub source_name: String,
+}
+
+/// Generate C code for a message type
+pub fn generate_c_message_package(
+    package_name: &str,
+    message_name: &str,
+    message: &Message,
+    type_hash: &str,
+) -> Result<GeneratedCPackage, GeneratorError> {
+    let c_pkg_name = to_c_package_name(package_name);
+    let msg_snake = to_snake_case(message_name);
+
+    // Build struct and guard names
+    let struct_name = format!("{}_msg_{}", c_pkg_name, msg_snake);
+    let guard_name = format!(
+        "{}_MSG_{}_H",
+        c_pkg_name.to_uppercase(),
+        msg_snake.to_uppercase()
+    );
+    let constant_prefix = format!(
+        "{}_MSG_{}",
+        c_pkg_name.to_uppercase(),
+        msg_snake.to_uppercase()
+    );
+    let header_name = format!("{}_msg_{}.h", c_pkg_name, msg_snake);
+    let source_name = format!("{}_msg_{}.c", c_pkg_name, msg_snake);
+
+    // Extract dependencies
+    let mut dependencies = Vec::new();
+    for field in &message.fields {
+        if let FieldType::NamespacedType {
+            package: Some(pkg), ..
+        } = &field.field_type
+        {
+            let dep = to_c_package_name(pkg);
+            if !dependencies.contains(&dep) {
+                dependencies.push(dep);
+            }
+        }
+    }
+    dependencies.sort();
+
+    // Build C fields
+    let fields: Vec<CField> = message
+        .fields
+        .iter()
+        .map(|field| build_c_field(&field.name, &field.field_type, Some(package_name)))
+        .collect();
+
+    // Build C constants
+    let constants: Vec<CConstant> = message
+        .constants
+        .iter()
+        .map(|constant| CConstant {
+            name: constant.name.clone(),
+            c_type: c_type_for_constant(&constant.constant_type),
+            value: constant_value_to_rust(&constant.value),
+        })
+        .collect();
+
+    let has_fields = !fields.is_empty();
+
+    // Generate header
+    let header_template = MessageCHeaderTemplate {
+        package_name,
+        message_name,
+        type_hash,
+        guard_name,
+        struct_name: struct_name.clone(),
+        constant_prefix,
+        fields: fields.clone(),
+        constants,
+        dependencies,
+        has_fields,
+    };
+    let header = header_template.render()?;
+
+    // Generate source
+    let source_template = MessageCSourceTemplate {
+        package_name,
+        message_name,
+        type_hash,
+        header_name: header_name.clone(),
+        struct_name,
+        fields,
+        has_fields,
+    };
+    let source = source_template.render()?;
+
+    Ok(GeneratedCPackage {
+        header,
+        source,
+        header_name,
+        source_name,
+    })
+}
+
+/// Generated C service package
+pub struct GeneratedCServicePackage {
+    /// Header file content (.h)
+    pub header: String,
+    /// Source file content (.c)
+    pub source: String,
+    /// Header filename
+    pub header_name: String,
+    /// Source filename
+    pub source_name: String,
+}
+
+/// Generate C code for a service type
+pub fn generate_c_service_package(
+    package_name: &str,
+    service_name: &str,
+    service: &Service,
+    type_hash: &str,
+) -> Result<GeneratedCServicePackage, GeneratorError> {
+    let c_pkg_name = to_c_package_name(package_name);
+    let srv_snake = to_snake_case(service_name);
+
+    // Build struct and guard names
+    let service_struct_name = format!("{}_srv_{}", c_pkg_name, srv_snake);
+    let request_struct_name = format!("{}_srv_{}_request", c_pkg_name, srv_snake);
+    let response_struct_name = format!("{}_srv_{}_response", c_pkg_name, srv_snake);
+    let guard_name = format!(
+        "{}_SRV_{}_H",
+        c_pkg_name.to_uppercase(),
+        srv_snake.to_uppercase()
+    );
+    let constant_prefix = format!(
+        "{}_SRV_{}",
+        c_pkg_name.to_uppercase(),
+        srv_snake.to_uppercase()
+    );
+    let header_name = format!("{}_srv_{}.h", c_pkg_name, srv_snake);
+    let source_name = format!("{}_srv_{}.c", c_pkg_name, srv_snake);
+
+    // Extract dependencies from both request and response
+    let mut dependencies = Vec::new();
+    for field in service
+        .request
+        .fields
+        .iter()
+        .chain(service.response.fields.iter())
+    {
+        if let FieldType::NamespacedType {
+            package: Some(pkg), ..
+        } = &field.field_type
+        {
+            let dep = to_c_package_name(pkg);
+            if !dependencies.contains(&dep) {
+                dependencies.push(dep);
+            }
+        }
+    }
+    dependencies.sort();
+
+    // Build C fields for request
+    let request_fields: Vec<CField> = service
+        .request
+        .fields
+        .iter()
+        .map(|field| build_c_field(&field.name, &field.field_type, Some(package_name)))
+        .collect();
+
+    let request_constants: Vec<CConstant> = service
+        .request
+        .constants
+        .iter()
+        .map(|constant| CConstant {
+            name: constant.name.clone(),
+            c_type: c_type_for_constant(&constant.constant_type),
+            value: constant_value_to_rust(&constant.value),
+        })
+        .collect();
+
+    // Build C fields for response
+    let response_fields: Vec<CField> = service
+        .response
+        .fields
+        .iter()
+        .map(|field| build_c_field(&field.name, &field.field_type, Some(package_name)))
+        .collect();
+
+    let response_constants: Vec<CConstant> = service
+        .response
+        .constants
+        .iter()
+        .map(|constant| CConstant {
+            name: constant.name.clone(),
+            c_type: c_type_for_constant(&constant.constant_type),
+            value: constant_value_to_rust(&constant.value),
+        })
+        .collect();
+
+    let has_request_fields = !request_fields.is_empty();
+    let has_response_fields = !response_fields.is_empty();
+
+    // Generate header
+    let header_template = ServiceCHeaderTemplate {
+        package_name,
+        service_name,
+        type_hash,
+        guard_name,
+        service_struct_name: service_struct_name.clone(),
+        request_struct_name: request_struct_name.clone(),
+        response_struct_name: response_struct_name.clone(),
+        constant_prefix,
+        request_fields: request_fields.clone(),
+        request_constants,
+        response_fields: response_fields.clone(),
+        response_constants,
+        dependencies,
+        has_request_fields,
+        has_response_fields,
+    };
+    let header = header_template.render()?;
+
+    // Generate source
+    let source_template = ServiceCSourceTemplate {
+        package_name,
+        service_name,
+        type_hash,
+        header_name: header_name.clone(),
+        service_struct_name,
+        request_struct_name,
+        response_struct_name,
+        request_fields,
+        response_fields,
+        has_request_fields,
+        has_response_fields,
+    };
+    let source = source_template.render()?;
+
+    Ok(GeneratedCServicePackage {
+        header,
+        source,
+        header_name,
+        source_name,
+    })
+}
+
+/// Generated C action package
+pub struct GeneratedCActionPackage {
+    /// Header file content (.h)
+    pub header: String,
+    /// Source file content (.c)
+    pub source: String,
+    /// Header filename
+    pub header_name: String,
+    /// Source filename
+    pub source_name: String,
+}
+
+/// Generate C code for an action type
+pub fn generate_c_action_package(
+    package_name: &str,
+    action_name: &str,
+    action: &Action,
+    type_hash: &str,
+) -> Result<GeneratedCActionPackage, GeneratorError> {
+    let c_pkg_name = to_c_package_name(package_name);
+    let action_snake = to_snake_case(action_name);
+
+    // Build struct and guard names
+    let action_struct_name = format!("{}_action_{}", c_pkg_name, action_snake);
+    let goal_struct_name = format!("{}_action_{}_goal", c_pkg_name, action_snake);
+    let result_struct_name = format!("{}_action_{}_result", c_pkg_name, action_snake);
+    let feedback_struct_name = format!("{}_action_{}_feedback", c_pkg_name, action_snake);
+    let guard_name = format!(
+        "{}_ACTION_{}_H",
+        c_pkg_name.to_uppercase(),
+        action_snake.to_uppercase()
+    );
+    let constant_prefix = format!(
+        "{}_ACTION_{}",
+        c_pkg_name.to_uppercase(),
+        action_snake.to_uppercase()
+    );
+    let header_name = format!("{}_action_{}.h", c_pkg_name, action_snake);
+    let source_name = format!("{}_action_{}.c", c_pkg_name, action_snake);
+
+    // Extract dependencies from goal, result, and feedback
+    let mut dependencies = Vec::new();
+    for field in action
+        .spec
+        .goal
+        .fields
+        .iter()
+        .chain(action.spec.result.fields.iter())
+        .chain(action.spec.feedback.fields.iter())
+    {
+        if let FieldType::NamespacedType {
+            package: Some(pkg), ..
+        } = &field.field_type
+        {
+            let dep = to_c_package_name(pkg);
+            if !dependencies.contains(&dep) {
+                dependencies.push(dep);
+            }
+        }
+    }
+    dependencies.sort();
+
+    // Build C fields for goal
+    let goal_fields: Vec<CField> = action
+        .spec
+        .goal
+        .fields
+        .iter()
+        .map(|field| build_c_field(&field.name, &field.field_type, Some(package_name)))
+        .collect();
+
+    let goal_constants: Vec<CConstant> = action
+        .spec
+        .goal
+        .constants
+        .iter()
+        .map(|constant| CConstant {
+            name: constant.name.clone(),
+            c_type: c_type_for_constant(&constant.constant_type),
+            value: constant_value_to_rust(&constant.value),
+        })
+        .collect();
+
+    // Build C fields for result
+    let result_fields: Vec<CField> = action
+        .spec
+        .result
+        .fields
+        .iter()
+        .map(|field| build_c_field(&field.name, &field.field_type, Some(package_name)))
+        .collect();
+
+    let result_constants: Vec<CConstant> = action
+        .spec
+        .result
+        .constants
+        .iter()
+        .map(|constant| CConstant {
+            name: constant.name.clone(),
+            c_type: c_type_for_constant(&constant.constant_type),
+            value: constant_value_to_rust(&constant.value),
+        })
+        .collect();
+
+    // Build C fields for feedback
+    let feedback_fields: Vec<CField> = action
+        .spec
+        .feedback
+        .fields
+        .iter()
+        .map(|field| build_c_field(&field.name, &field.field_type, Some(package_name)))
+        .collect();
+
+    let feedback_constants: Vec<CConstant> = action
+        .spec
+        .feedback
+        .constants
+        .iter()
+        .map(|constant| CConstant {
+            name: constant.name.clone(),
+            c_type: c_type_for_constant(&constant.constant_type),
+            value: constant_value_to_rust(&constant.value),
+        })
+        .collect();
+
+    let has_goal_fields = !goal_fields.is_empty();
+    let has_result_fields = !result_fields.is_empty();
+    let has_feedback_fields = !feedback_fields.is_empty();
+
+    // Generate header
+    let header_template = ActionCHeaderTemplate {
+        package_name,
+        action_name,
+        type_hash,
+        guard_name,
+        action_struct_name: action_struct_name.clone(),
+        goal_struct_name: goal_struct_name.clone(),
+        result_struct_name: result_struct_name.clone(),
+        feedback_struct_name: feedback_struct_name.clone(),
+        constant_prefix,
+        goal_fields: goal_fields.clone(),
+        goal_constants,
+        result_fields: result_fields.clone(),
+        result_constants,
+        feedback_fields: feedback_fields.clone(),
+        feedback_constants,
+        dependencies,
+        has_goal_fields,
+        has_result_fields,
+        has_feedback_fields,
+    };
+    let header = header_template.render()?;
+
+    // Generate source
+    let source_template = ActionCSourceTemplate {
+        package_name,
+        action_name,
+        type_hash,
+        header_name: header_name.clone(),
+        action_struct_name,
+        goal_struct_name,
+        result_struct_name,
+        feedback_struct_name,
+        goal_fields,
+        result_fields,
+        feedback_fields,
+        has_goal_fields,
+        has_result_fields,
+        has_feedback_fields,
+    };
+    let source = source_template.render()?;
+
+    Ok(GeneratedCActionPackage {
+        header,
+        source,
+        header_name,
+        source_name,
+    })
+}
+
+/// Build a CField from a field type
+fn build_c_field(name: &str, field_type: &FieldType, current_package: Option<&str>) -> CField {
+    let escaped_name = escape_keyword(name);
+    let c_type = c_type_for_field(field_type, current_package);
+    let array_suffix = c_array_suffix_for_field(field_type);
+
+    // Determine type characteristics
+    let (is_primitive, primitive_type) = match field_type {
+        FieldType::Primitive(prim) => (true, Some(prim)),
+        _ => (false, None),
+    };
+
+    let is_string = matches!(
+        field_type,
+        FieldType::String
+            | FieldType::BoundedString(_)
+            | FieldType::WString
+            | FieldType::BoundedWString(_)
+    );
+
+    let is_array = matches!(field_type, FieldType::Array { .. });
+    let is_sequence = matches!(
+        field_type,
+        FieldType::Sequence { .. } | FieldType::BoundedSequence { .. }
+    );
+    let is_nested = matches!(field_type, FieldType::NamespacedType { .. });
+
+    // Get array/sequence info
+    let (array_size, sequence_capacity) = match field_type {
+        FieldType::Array { size, .. } => (*size, 0),
+        FieldType::Sequence { .. } => (0, C_DEFAULT_SEQUENCE_CAPACITY),
+        FieldType::BoundedSequence { max_size, .. } => (0, *max_size),
+        _ => (0, 0),
+    };
+
+    // Get element info for arrays/sequences
+    let (is_primitive_element, is_string_element, element_type) = match field_type {
+        FieldType::Array { element_type, .. }
+        | FieldType::Sequence { element_type }
+        | FieldType::BoundedSequence { element_type, .. } => {
+            let is_prim = matches!(element_type.as_ref(), FieldType::Primitive(_));
+            let is_str = matches!(
+                element_type.as_ref(),
+                FieldType::String
+                    | FieldType::BoundedString(_)
+                    | FieldType::WString
+                    | FieldType::BoundedWString(_)
+            );
+            (is_prim, is_str, Some(element_type.as_ref()))
+        }
+        _ => (false, false, None),
+    };
+
+    // Get CDR methods
+    let (cdr_write_method, cdr_read_method) = if let Some(prim) = primitive_type {
+        (
+            c_cdr_write_method(prim).to_string(),
+            c_cdr_read_method(prim).to_string(),
+        )
+    } else {
+        (String::new(), String::new())
+    };
+
+    let (element_cdr_write_method, element_cdr_read_method) =
+        if let Some(FieldType::Primitive(prim)) = element_type {
+            (
+                c_cdr_write_method(prim).to_string(),
+                c_cdr_read_method(prim).to_string(),
+            )
+        } else {
+            (String::new(), String::new())
+        };
+
+    // Get nested struct names
+    let nested_struct_name = if let FieldType::NamespacedType { package, name } = field_type {
+        if let Some(pkg) = package {
+            format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
+        } else {
+            format!("msg_{}", to_snake_case(name))
+        }
+    } else {
+        String::new()
+    };
+
+    let element_struct_name =
+        if let Some(FieldType::NamespacedType { package, name }) = element_type {
+            if let Some(pkg) = package {
+                format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
+            } else {
+                format!("msg_{}", to_snake_case(name))
+            }
+        } else {
+            String::new()
+        };
+
+    CField {
+        name: escaped_name,
+        c_type,
+        array_suffix,
+        cdr_write_method,
+        cdr_read_method,
+        element_cdr_write_method,
+        element_cdr_read_method,
+        array_size,
+        sequence_capacity,
+        nested_struct_name,
+        element_struct_name,
+        is_primitive,
+        is_string,
+        is_array,
+        is_sequence,
+        is_nested,
+        is_primitive_element,
+        is_string_element,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1119,5 +1674,151 @@ mod tests {
         assert!(pkg.action_rs.contains("type Goal = FibonacciGoal"));
         assert!(pkg.action_rs.contains("type Result = FibonacciResult"));
         assert!(pkg.action_rs.contains("type Feedback = FibonacciFeedback"));
+    }
+
+    // ========================================================================
+    // C Code Generation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_c_simple_message_generation() {
+        let msg = parse_message("int32 x\nfloat64 y\nbool flag\n").unwrap();
+        let type_hash = "abc123";
+
+        let result = generate_c_message_package("test_msgs", "Point", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Check header file
+        assert!(pkg.header.contains("#ifndef TEST_MSGS_MSG_POINT_H"));
+        assert!(pkg.header.contains("typedef struct test_msgs_msg_point"));
+        assert!(pkg.header.contains("int32_t x"));
+        assert!(pkg.header.contains("double y"));
+        assert!(pkg.header.contains("bool flag"));
+        assert!(pkg.header.contains("test_msgs_msg_point_init"));
+        assert!(pkg.header.contains("test_msgs_msg_point_serialize"));
+        assert!(pkg.header.contains("test_msgs_msg_point_deserialize"));
+
+        // Check source file
+        assert!(pkg.source.contains("test_msgs_msg_point.h"));
+        assert!(pkg.source.contains("nano_ros_cdr_write_i32"));
+        assert!(pkg.source.contains("nano_ros_cdr_write_f64"));
+        assert!(pkg.source.contains("nano_ros_cdr_write_bool"));
+
+        // Check file names
+        assert_eq!(pkg.header_name, "test_msgs_msg_point.h");
+        assert_eq!(pkg.source_name, "test_msgs_msg_point.c");
+    }
+
+    #[test]
+    fn test_c_message_with_string() {
+        let msg = parse_message("string name\n").unwrap();
+        let type_hash = "def456";
+
+        let result = generate_c_message_package("std_msgs", "String", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+        assert!(pkg.header.contains("char name[256]"));
+        assert!(pkg.source.contains("nano_ros_cdr_write_string"));
+    }
+
+    #[test]
+    fn test_c_message_with_array() {
+        let msg = parse_message("int32[3] values\n").unwrap();
+        let type_hash = "ghi789";
+
+        let result = generate_c_message_package("test_msgs", "IntArray", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+        assert!(pkg.header.contains("int32_t values[3]"));
+        assert!(pkg.source.contains("for (size_t i = 0; i < 3; ++i)"));
+    }
+
+    #[test]
+    fn test_c_simple_service_generation() {
+        let srv = parse_service("int32 a\nint32 b\n---\nint32 sum\n").unwrap();
+        let type_hash = "srv123";
+
+        let result = generate_c_service_package("test_srvs", "AddTwoInts", &srv, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Check header file
+        assert!(pkg.header.contains("#ifndef TEST_SRVS_SRV_ADD_TWO_INTS_H"));
+        assert!(pkg
+            .header
+            .contains("typedef struct test_srvs_srv_add_two_ints_request"));
+        assert!(pkg
+            .header
+            .contains("typedef struct test_srvs_srv_add_two_ints_response"));
+        assert!(pkg.header.contains("int32_t a"));
+        assert!(pkg.header.contains("int32_t b"));
+        assert!(pkg.header.contains("int32_t sum"));
+
+        // Check source file
+        assert!(pkg
+            .source
+            .contains("test_srvs_srv_add_two_ints_request_init"));
+        assert!(pkg
+            .source
+            .contains("test_srvs_srv_add_two_ints_response_init"));
+        assert!(pkg
+            .source
+            .contains("test_srvs_srv_add_two_ints_request_serialize"));
+        assert!(pkg
+            .source
+            .contains("test_srvs_srv_add_two_ints_response_serialize"));
+
+        // Check file names
+        assert_eq!(pkg.header_name, "test_srvs_srv_add_two_ints.h");
+        assert_eq!(pkg.source_name, "test_srvs_srv_add_two_ints.c");
+    }
+
+    #[test]
+    fn test_c_simple_action_generation() {
+        let action =
+            parse_action("int32 order\n---\nint32 result_code\n---\nint32 progress\n").unwrap();
+        let type_hash = "act456";
+
+        let result = generate_c_action_package("test_actions", "Fibonacci", &action, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Check header file
+        assert!(pkg
+            .header
+            .contains("#ifndef TEST_ACTIONS_ACTION_FIBONACCI_H"));
+        assert!(pkg
+            .header
+            .contains("typedef struct test_actions_action_fibonacci_goal"));
+        assert!(pkg
+            .header
+            .contains("typedef struct test_actions_action_fibonacci_result"));
+        assert!(pkg
+            .header
+            .contains("typedef struct test_actions_action_fibonacci_feedback"));
+        assert!(pkg.header.contains("int32_t order"));
+        assert!(pkg.header.contains("int32_t result_code"));
+        assert!(pkg.header.contains("int32_t progress"));
+
+        // Check source file
+        assert!(pkg
+            .source
+            .contains("test_actions_action_fibonacci_goal_init"));
+        assert!(pkg
+            .source
+            .contains("test_actions_action_fibonacci_result_init"));
+        assert!(pkg
+            .source
+            .contains("test_actions_action_fibonacci_feedback_init"));
+
+        // Check file names
+        assert_eq!(pkg.header_name, "test_actions_action_fibonacci.h");
+        assert_eq!(pkg.source_name, "test_actions_action_fibonacci.c");
     }
 }
