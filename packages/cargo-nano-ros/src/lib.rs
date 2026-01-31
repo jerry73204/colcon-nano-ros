@@ -409,10 +409,7 @@ pub fn generate_c_from_args_file(config: GenerateCConfig) -> Result<()> {
 
     // Process each interface file
     for file_path in &args.interface_files {
-        let extension = file_path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let extension = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let file_name = file_path
             .file_stem()
@@ -437,7 +434,9 @@ pub fn generate_c_from_args_file(config: GenerateCConfig) -> Result<()> {
                     &parsed,
                     type_hash,
                 )
-                .wrap_err_with(|| format!("Failed to generate C code for message: {}", file_name))?;
+                .wrap_err_with(|| {
+                    format!("Failed to generate C code for message: {}", file_name)
+                })?;
 
                 // Write header and source
                 let header_path = msg_dir.join(&generated.header_name);
@@ -461,7 +460,9 @@ pub fn generate_c_from_args_file(config: GenerateCConfig) -> Result<()> {
                     &parsed,
                     type_hash,
                 )
-                .wrap_err_with(|| format!("Failed to generate C code for service: {}", file_name))?;
+                .wrap_err_with(|| {
+                    format!("Failed to generate C code for service: {}", file_name)
+                })?;
 
                 // Write header and source
                 let header_path = srv_dir.join(&generated.header_name);
@@ -542,10 +543,7 @@ fn generate_umbrella_header(
     action_headers: &[String],
     dependencies: &[String],
 ) -> String {
-    let guard_name = format!(
-        "{}_H",
-        package_name.to_uppercase().replace('-', "_")
-    );
+    let guard_name = format!("{}_H", package_name.to_uppercase().replace('-', "_"));
 
     let mut content = String::new();
 

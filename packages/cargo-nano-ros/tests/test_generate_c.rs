@@ -126,7 +126,8 @@ float64 double_val
     generate_c_from_args_file(config).expect("Failed to generate C code");
 
     let output_dir = temp_dir.path().join("output");
-    let header = fs::read_to_string(output_dir.join("msg/primitive_test_msg_all_primitives.h")).unwrap();
+    let header =
+        fs::read_to_string(output_dir.join("msg/primitive_test_msg_all_primitives.h")).unwrap();
 
     // Verify all primitive types are present with correct C types
     assert!(header.contains("bool flag"));
@@ -212,7 +213,11 @@ fn test_generate_c_multiple_messages() {
     let temp_dir = TempDir::new().unwrap();
 
     let msg1 = create_msg_file(&temp_dir, "Position", "float64 x\nfloat64 y\nfloat64 z\n");
-    let msg2 = create_msg_file(&temp_dir, "Velocity", "float64 vx\nfloat64 vy\nfloat64 vz\n");
+    let msg2 = create_msg_file(
+        &temp_dir,
+        "Velocity",
+        "float64 vx\nfloat64 vy\nfloat64 vz\n",
+    );
 
     let args_file = create_args_file(&temp_dir, "multi_test", &[msg1, msg2], &[]);
 
@@ -279,7 +284,12 @@ fn test_generate_c_with_dependencies() {
     let msg_path = create_msg_file(&temp_dir, "Simple", "int32 value\n");
 
     // Specify dependencies (they don't need to exist for this test)
-    let args_file = create_args_file(&temp_dir, "dep_test", &[msg_path], &["std_msgs", "geometry_msgs"]);
+    let args_file = create_args_file(
+        &temp_dir,
+        "dep_test",
+        &[msg_path],
+        &["std_msgs", "geometry_msgs"],
+    );
 
     let config = GenerateCConfig {
         args_file,
@@ -371,7 +381,8 @@ fn test_generate_c_package_name_with_hyphens() {
         "msg/my-custom-package_msg_test.h",
     ];
 
-    let header_path = possible_files.iter()
+    let header_path = possible_files
+        .iter()
         .map(|f| output_dir.join(f))
         .find(|p| p.exists())
         .expect("Expected header file not found");
