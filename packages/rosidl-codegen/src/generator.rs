@@ -9,8 +9,8 @@ use crate::templates::{
 use crate::types::{
     C_DEFAULT_SEQUENCE_CAPACITY, NanoRosCodegenMode, c_array_suffix_for_field, c_cdr_read_method,
     c_cdr_write_method, c_type_for_constant, c_type_for_field, constant_value_to_rust,
-    escape_keyword, nano_ros_type_for_constant, nano_ros_type_for_field,
-    nano_ros_type_for_field_with_mode, rust_type_for_constant, rust_type_for_field,
+    escape_keyword, nano_ros_type_for_constant, nano_ros_type_for_field_with_mode,
+    rust_type_for_constant, rust_type_for_field,
     to_c_package_name,
 };
 use crate::utils::{extract_dependencies, needs_big_array, to_snake_case};
