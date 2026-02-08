@@ -37,7 +37,7 @@ pub mod package_discovery;
 pub mod package_xml;
 pub mod workflow;
 
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use rosidl_bindgen::ament::{AmentIndex, Package};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -266,7 +266,7 @@ fn filter_interface_packages(
     Ok(interface_packages)
 }
 
-/// Generate .cargo/config.toml with patch entries
+/// Generate .cargo/config.toml with patch entries using ConfigPatcher (TOML-aware, idempotent)
 fn generate_cargo_config(
     output_dir: &Path,
     packages: &[String],
@@ -274,70 +274,27 @@ fn generate_cargo_config(
     nano_ros_git: bool,
     verbose: bool,
 ) -> Result<()> {
-    let cargo_dir = Path::new(".cargo");
-    std::fs::create_dir_all(cargo_dir)?;
-
-    let config_path = cargo_dir.join("config.toml");
-
-    // Build patch entries
-    let mut patches = String::new();
-    patches.push_str("[patch.crates-io]\n");
+    let project_root = Path::new(".");
+    let mut patcher = config_patcher::ConfigPatcher::new(project_root)?;
 
     // Add nano-ros crate patches
     if let Some(crates_path) = nano_ros_path {
         // Path-based patches (for local development)
-        patches.push_str(&format!(
-            "nano-ros-core = {{ path = \"{}\" }}\n",
-            crates_path.join("nano-ros-core").display()
-        ));
-        patches.push_str(&format!(
-            "nano-ros-serdes = {{ path = \"{}\" }}\n",
-            crates_path.join("nano-ros-serdes").display()
-        ));
+        patcher.add_patch("nano-ros-core", &crates_path.join("nano-ros-core"));
+        patcher.add_patch("nano-ros-serdes", &crates_path.join("nano-ros-serdes"));
     } else if nano_ros_git {
         // Git-based patches (for external users)
         let git_url = "https://github.com/jerry73204/nano-ros";
-        patches.push_str(&format!(
-            "nano-ros-core = {{ git = \"{}\" }}\n",
-            git_url
-        ));
-        patches.push_str(&format!(
-            "nano-ros-serdes = {{ git = \"{}\" }}\n",
-            git_url
-        ));
+        patcher.add_git_patch("nano-ros-core", git_url);
+        patcher.add_git_patch("nano-ros-serdes", git_url);
     }
 
     // Add message package patches
     for pkg in packages {
-        let pkg_path = output_dir.join(pkg);
-        patches.push_str(&format!(
-            "{} = {{ path = \"{}\" }}\n",
-            pkg,
-            pkg_path.display()
-        ));
+        patcher.add_patch(pkg, &output_dir.join(pkg));
     }
 
-    // Write or append to config.toml
-    if config_path.exists() {
-        // Read existing content
-        let existing = std::fs::read_to_string(&config_path)?;
-
-        // Check if [patch.crates-io] section already exists
-        if existing.contains("[patch.crates-io]") {
-            if verbose {
-                println!(
-                    "Warning: .cargo/config.toml already has [patch.crates-io] section, not modifying"
-                );
-            }
-            return Ok(());
-        }
-
-        // Append to existing
-        let new_content = format!("{}\n{}", existing.trim_end(), patches);
-        std::fs::write(&config_path, new_content)?;
-    } else {
-        std::fs::write(&config_path, patches)?;
-    }
+    patcher.save()?;
 
     if verbose {
         let nano_count = if nano_ros_path.is_some() || nano_ros_git { 2 } else { 0 };
@@ -657,7 +614,7 @@ pub fn clean_bindings(project_root: &Path, verbose: bool) -> Result<()> {
 
 /// Install package binaries and libraries to ament layout (for colcon integration)
 pub fn install_to_ament(config: InstallConfig) -> Result<()> {
-    use crate::ament_installer::{is_library_package, AmentInstaller};
+    use crate::ament_installer::{AmentInstaller, is_library_package};
     use cargo_metadata::MetadataCommand;
     use std::env;
 

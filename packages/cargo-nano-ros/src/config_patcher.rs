@@ -75,6 +75,39 @@ impl ConfigPatcher {
         crates_io_table.insert(package_name.to_string(), Value::Table(package_table));
     }
 
+    /// Add a git-based patch entry for a ROS package
+    pub fn add_git_patch(&mut self, package_name: &str, git_url: &str) {
+        // Ensure [patch] table exists
+        if !self.config.contains_key("patch") {
+            self.config
+                .insert("patch".to_string(), Value::Table(toml::Table::new()));
+        }
+
+        let patch_table = self
+            .config
+            .get_mut("patch")
+            .unwrap()
+            .as_table_mut()
+            .unwrap();
+
+        // Ensure [patch.crates-io] table exists
+        if !patch_table.contains_key("crates-io") {
+            patch_table.insert("crates-io".to_string(), Value::Table(toml::Table::new()));
+        }
+
+        let crates_io_table = patch_table
+            .get_mut("crates-io")
+            .unwrap()
+            .as_table_mut()
+            .unwrap();
+
+        // Add/update patch entry for this package
+        let mut package_table = toml::Table::new();
+        package_table.insert("git".to_string(), Value::String(git_url.to_string()));
+
+        crates_io_table.insert(package_name.to_string(), Value::Table(package_table));
+    }
+
     /// Add multiple patch entries
     pub fn add_patches(&mut self, patches: &HashMap<String, PathBuf>) {
         for (package_name, package_path) in patches {
