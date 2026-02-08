@@ -8,10 +8,10 @@
 //! 5. Patch .cargo/config.toml
 //! 6. Invoke cargo build
 
-use crate::cache::{self, Cache, CacheEntry, CACHE_FILE_NAME};
+use crate::cache::{self, CACHE_FILE_NAME, Cache, CacheEntry};
 use crate::config_patcher::ConfigPatcher;
 use crate::dependency_parser::{DependencyParser, RosDependency};
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use rosidl_bindgen::ament::AmentIndex;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

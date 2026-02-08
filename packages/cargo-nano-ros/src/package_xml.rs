@@ -3,9 +3,9 @@
 //! This module parses package.xml files to extract interface dependencies
 //! (std_msgs, geometry_msgs, etc.) that need bindings generated.
 
-use eyre::{eyre, Result, WrapErr};
-use quick_xml::events::Event;
+use eyre::{Result, WrapErr, eyre};
 use quick_xml::Reader;
+use quick_xml::events::Event;
 use std::collections::HashSet;
 use std::path::Path;
 

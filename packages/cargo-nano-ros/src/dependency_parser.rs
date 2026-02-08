@@ -4,7 +4,7 @@
 //! dependencies and matches them against the ament index.
 
 use cargo_metadata::MetadataCommand;
-use eyre::{eyre, Result, WrapErr};
+use eyre::{Result, WrapErr, eyre};
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 
