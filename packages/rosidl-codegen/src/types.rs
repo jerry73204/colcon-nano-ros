@@ -537,14 +537,12 @@ pub fn nano_ros_type_for_field_with_mode(
         }
 
         FieldType::Array { element_type, size } => {
-            let elem =
-                nano_ros_type_for_field_with_mode(element_type, current_package, mode);
+            let elem = nano_ros_type_for_field_with_mode(element_type, current_package, mode);
             format!("[{}; {}]", elem, size)
         }
 
         FieldType::Sequence { element_type } => {
-            let elem =
-                nano_ros_type_for_field_with_mode(element_type, current_package, mode);
+            let elem = nano_ros_type_for_field_with_mode(element_type, current_package, mode);
             if inline {
                 format!(
                     "nros_core::heapless::Vec<{}, {}>",
@@ -562,8 +560,7 @@ pub fn nano_ros_type_for_field_with_mode(
             element_type,
             max_size,
         } => {
-            let elem =
-                nano_ros_type_for_field_with_mode(element_type, current_package, mode);
+            let elem = nano_ros_type_for_field_with_mode(element_type, current_package, mode);
             if inline {
                 format!("nros_core::heapless::Vec<{}, {}>", elem, max_size)
             } else {
