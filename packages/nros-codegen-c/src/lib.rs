@@ -19,10 +19,7 @@ use std::path::PathBuf;
 /// # Safety
 /// `args_file` must be a valid, null-terminated C string.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn nros_codegen_generate_c(
-    args_file: *const c_char,
-    verbose: i32,
-) -> i32 {
+pub unsafe extern "C" fn nros_codegen_generate_c(args_file: *const c_char, verbose: i32) -> i32 {
     let c_str = unsafe { CStr::from_ptr(args_file) };
     let path = match c_str.to_str() {
         Ok(s) => PathBuf::from(s),
