@@ -16,11 +16,11 @@ pub use generator::{
 pub use idl_generator::{GeneratedIdlCode, extract_annotations, generate_idl_file};
 pub use types::{
     C_DEFAULT_SEQUENCE_CAPACITY, C_DEFAULT_STRING_CAPACITY, CodegenBackend, FieldTypeExt,
-    IdlTypeExt, NANO_ROS_DEFAULT_SEQUENCE_CAPACITY, NANO_ROS_DEFAULT_STRING_CAPACITY,
-    NanoRosCodegenMode, RosEdition, c_array_suffix_for_field, c_type_for_constant,
-    c_type_for_field, escape_keyword, idl_constant_value_to_rust, nano_ros_type_for_constant,
-    nano_ros_type_for_field, nano_ros_type_for_field_with_mode, rust_type_for_field,
-    rust_type_for_idl, rust_type_for_idl_constant, to_c_package_name,
+    IdlTypeExt, NROS_DEFAULT_SEQUENCE_CAPACITY, NROS_DEFAULT_STRING_CAPACITY, NanoRosCodegenMode,
+    RosEdition, c_array_suffix_for_field, c_type_for_constant, c_type_for_field, escape_keyword,
+    idl_constant_value_to_rust, nano_ros_type_for_constant, nano_ros_type_for_field,
+    nano_ros_type_for_field_with_mode, rust_type_for_field, rust_type_for_idl,
+    rust_type_for_idl_constant, to_c_package_name,
 };
 
 #[cfg(test)]

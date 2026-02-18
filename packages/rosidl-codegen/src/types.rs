@@ -483,10 +483,10 @@ pub fn rust_type_for_constant(field_type: &FieldType) -> String {
 // ============================================================================
 
 /// Default string capacity for nros heapless strings
-pub const NANO_ROS_DEFAULT_STRING_CAPACITY: usize = 256;
+pub const NROS_DEFAULT_STRING_CAPACITY: usize = 256;
 
 /// Default sequence capacity for nros heapless vectors
-pub const NANO_ROS_DEFAULT_SEQUENCE_CAPACITY: usize = 64;
+pub const NROS_DEFAULT_SEQUENCE_CAPACITY: usize = 64;
 
 /// Configuration for nros code generation mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -523,10 +523,10 @@ pub fn nano_ros_type_for_field_with_mode(
             if inline {
                 format!(
                     "nros_core::heapless::String<{}>",
-                    NANO_ROS_DEFAULT_STRING_CAPACITY
+                    NROS_DEFAULT_STRING_CAPACITY
                 )
             } else {
-                format!("heapless::String<{}>", NANO_ROS_DEFAULT_STRING_CAPACITY)
+                format!("heapless::String<{}>", NROS_DEFAULT_STRING_CAPACITY)
             }
         }
 
@@ -543,10 +543,10 @@ pub fn nano_ros_type_for_field_with_mode(
             if inline {
                 format!(
                     "nros_core::heapless::String<{}>",
-                    NANO_ROS_DEFAULT_STRING_CAPACITY
+                    NROS_DEFAULT_STRING_CAPACITY
                 )
             } else {
-                format!("heapless::String<{}>", NANO_ROS_DEFAULT_STRING_CAPACITY)
+                format!("heapless::String<{}>", NROS_DEFAULT_STRING_CAPACITY)
             }
         }
 
@@ -568,12 +568,12 @@ pub fn nano_ros_type_for_field_with_mode(
             if inline {
                 format!(
                     "nros_core::heapless::Vec<{}, {}>",
-                    elem, NANO_ROS_DEFAULT_SEQUENCE_CAPACITY
+                    elem, NROS_DEFAULT_SEQUENCE_CAPACITY
                 )
             } else {
                 format!(
                     "heapless::Vec<{}, {}>",
-                    elem, NANO_ROS_DEFAULT_SEQUENCE_CAPACITY
+                    elem, NROS_DEFAULT_SEQUENCE_CAPACITY
                 )
             }
         }
