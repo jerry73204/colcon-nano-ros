@@ -225,6 +225,8 @@ pub fn generate_nros_service_package(
 
     let has_request_fields = !request_fields.is_empty();
     let has_response_fields = !response_fields.is_empty();
+    let has_request_large_array = request_fields.iter().any(|f| f.is_large_array);
+    let has_response_large_array = response_fields.iter().any(|f| f.is_large_array);
     let service_template = ServiceNrosTemplate {
         package_name,
         service_name,
@@ -235,6 +237,8 @@ pub fn generate_nros_service_package(
         response_constants,
         has_request_fields,
         has_response_fields,
+        has_request_large_array,
+        has_response_large_array,
         inline_mode: false,
     };
     let service_rs = service_template.render()?;
@@ -294,6 +298,8 @@ pub fn generate_nros_inline_service(
     let type_hash = edition.type_hash();
     let has_request_fields = !request_fields.is_empty();
     let has_response_fields = !response_fields.is_empty();
+    let has_request_large_array = request_fields.iter().any(|f| f.is_large_array);
+    let has_response_large_array = response_fields.iter().any(|f| f.is_large_array);
 
     let template = ServiceNrosTemplate {
         package_name,
@@ -305,6 +311,8 @@ pub fn generate_nros_inline_service(
         response_constants,
         has_request_fields,
         has_response_fields,
+        has_request_large_array,
+        has_response_large_array,
         inline_mode: true,
     };
 

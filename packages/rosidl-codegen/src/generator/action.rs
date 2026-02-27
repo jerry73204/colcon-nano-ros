@@ -261,6 +261,9 @@ pub fn generate_nros_action_package(
     let has_goal_fields = !goal_fields.is_empty();
     let has_result_fields = !result_fields.is_empty();
     let has_feedback_fields = !feedback_fields.is_empty();
+    let has_goal_large_array = goal_fields.iter().any(|f| f.is_large_array);
+    let has_result_large_array = result_fields.iter().any(|f| f.is_large_array);
+    let has_feedback_large_array = feedback_fields.iter().any(|f| f.is_large_array);
 
     let action_template = ActionNrosTemplate {
         package_name,
@@ -275,6 +278,9 @@ pub fn generate_nros_action_package(
         has_goal_fields,
         has_result_fields,
         has_feedback_fields,
+        has_goal_large_array,
+        has_result_large_array,
+        has_feedback_large_array,
         inline_mode: false,
     };
     let action_rs = action_template.render()?;
@@ -359,6 +365,9 @@ pub fn generate_nros_inline_action(
     let has_goal_fields = !goal_fields.is_empty();
     let has_result_fields = !result_fields.is_empty();
     let has_feedback_fields = !feedback_fields.is_empty();
+    let has_goal_large_array = goal_fields.iter().any(|f| f.is_large_array);
+    let has_result_large_array = result_fields.iter().any(|f| f.is_large_array);
+    let has_feedback_large_array = feedback_fields.iter().any(|f| f.is_large_array);
 
     let template = ActionNrosTemplate {
         package_name,
@@ -373,6 +382,9 @@ pub fn generate_nros_inline_action(
         has_goal_fields,
         has_result_fields,
         has_feedback_fields,
+        has_goal_large_array,
+        has_result_large_array,
+        has_feedback_large_array,
         inline_mode: true,
     };
 

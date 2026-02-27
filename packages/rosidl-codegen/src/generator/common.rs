@@ -164,6 +164,7 @@ pub(super) fn field_to_nros_field_with_mode(
         is_nested,
         is_primitive_element,
         is_string_element,
+        is_large_array: array_size > 32,
     }
 }
 

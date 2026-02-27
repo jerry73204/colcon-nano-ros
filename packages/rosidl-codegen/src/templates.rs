@@ -178,6 +178,8 @@ pub struct NrosField {
     pub is_nested: bool,
     pub is_primitive_element: bool,
     pub is_string_element: bool,
+    /// True if this is a fixed-size array with > 32 elements (no Default for [T; N] where N > 32)
+    pub is_large_array: bool,
 }
 
 #[derive(Template)]
@@ -190,6 +192,8 @@ pub struct MessageNrosTemplate<'a> {
     pub constants: Vec<MessageConstant>,
     /// True if there are fields to serialize/deserialize
     pub has_fields: bool,
+    /// True if any field is a large array (> 32 elements), requiring manual Default impl
+    pub has_large_array: bool,
     /// When true, uses nros_core:: prefixed imports instead of direct use statements
     pub inline_mode: bool,
 }
@@ -208,6 +212,10 @@ pub struct ServiceNrosTemplate<'a> {
     pub has_request_fields: bool,
     /// True if response has fields to serialize/deserialize
     pub has_response_fields: bool,
+    /// True if request has a large array field (> 32 elements)
+    pub has_request_large_array: bool,
+    /// True if response has a large array field (> 32 elements)
+    pub has_response_large_array: bool,
     /// When true, uses nros_core:: prefixed imports instead of direct use statements
     pub inline_mode: bool,
 }
@@ -246,6 +254,12 @@ pub struct ActionNrosTemplate<'a> {
     pub has_result_fields: bool,
     /// True if feedback has fields to serialize/deserialize
     pub has_feedback_fields: bool,
+    /// True if goal has a large array field (> 32 elements)
+    pub has_goal_large_array: bool,
+    /// True if result has a large array field (> 32 elements)
+    pub has_result_large_array: bool,
+    /// True if feedback has a large array field (> 32 elements)
+    pub has_feedback_large_array: bool,
     /// When true, uses nros_core:: prefixed imports instead of direct use statements
     pub inline_mode: bool,
 }
