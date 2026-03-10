@@ -1117,3 +1117,192 @@ pub fn c_cdr_read_method(prim: &rosidl_parser::PrimitiveType) -> &'static str {
         PrimitiveType::Float64 => "read_f64",
     }
 }
+
+// ============================================================================
+// C++ Type Mapping (for nros-cpp)
+// ============================================================================
+
+/// Default string capacity for C++ FixedString (matches C API)
+pub const CPP_DEFAULT_STRING_CAPACITY: usize = 256;
+
+/// Default sequence capacity for C++ FixedSequence (matches C API)
+pub const CPP_DEFAULT_SEQUENCE_CAPACITY: usize = 64;
+
+/// Get the Rust `#[repr(C)]` type for a field (for C++ FFI glue)
+pub fn repr_c_type_for_field(field_type: &FieldType, _current_package: Option<&str>) -> String {
+    match field_type {
+        FieldType::Primitive(prim) => repr_c_primitive_type(prim).to_string(),
+
+        // Strings map to [u8; N] (repr(C) compatible with char[N])
+        FieldType::String => format!("[u8; {}]", CPP_DEFAULT_STRING_CAPACITY),
+        FieldType::BoundedString(size) => format!("[u8; {}]", size),
+        FieldType::WString => format!("[u8; {}]", CPP_DEFAULT_STRING_CAPACITY),
+        FieldType::BoundedWString(size) => format!("[u8; {}]", size),
+
+        // Arrays use [T; N]
+        FieldType::Array { element_type, size } => {
+            let elem = repr_c_type_for_field(element_type, None);
+            format!("[{}; {}]", elem, size)
+        }
+
+        // Sequences use named struct type (generated separately)
+        FieldType::Sequence { .. } | FieldType::BoundedSequence { .. } => {
+            // This will be overridden by the caller with the sequence struct name
+            String::new()
+        }
+
+        FieldType::NamespacedType { package, name } => {
+            if let Some(pkg) = package {
+                format!("{}_msg_{}_t", to_c_package_name(pkg), to_snake_case(name))
+            } else {
+                format!("msg_{}_t", to_snake_case(name))
+            }
+        }
+    }
+}
+
+/// Get the Rust `#[repr(C)]` primitive type
+fn repr_c_primitive_type(prim: &rosidl_parser::PrimitiveType) -> &'static str {
+    use rosidl_parser::PrimitiveType;
+    match prim {
+        PrimitiveType::Bool => "bool",
+        PrimitiveType::Byte => "u8",
+        PrimitiveType::Char => "u8",
+        PrimitiveType::Int8 => "i8",
+        PrimitiveType::Int16 => "i16",
+        PrimitiveType::Int32 => "i32",
+        PrimitiveType::Int64 => "i64",
+        PrimitiveType::UInt8 => "u8",
+        PrimitiveType::UInt16 => "u16",
+        PrimitiveType::UInt32 => "u32",
+        PrimitiveType::UInt64 => "u64",
+        PrimitiveType::Float32 => "f32",
+        PrimitiveType::Float64 => "f64",
+    }
+}
+
+/// Get the C++ type for a field (for C++ header generation)
+///
+/// Uses `FixedString<N>` for strings and `FixedSequence<T,N>` for sequences.
+pub fn cpp_type_for_field(field_type: &FieldType, _current_package: Option<&str>) -> String {
+    match field_type {
+        FieldType::Primitive(prim) => c_primitive_type(prim),
+
+        FieldType::String => format!("nros::FixedString<{}>", CPP_DEFAULT_STRING_CAPACITY),
+        FieldType::BoundedString(size) => format!("nros::FixedString<{}>", size),
+        FieldType::WString => format!("nros::FixedString<{}>", CPP_DEFAULT_STRING_CAPACITY),
+        FieldType::BoundedWString(size) => format!("nros::FixedString<{}>", size),
+
+        FieldType::Array { element_type, size } => {
+            let elem = cpp_type_for_field(element_type, None);
+            format!("{}[{}]", elem, size)
+        }
+
+        FieldType::Sequence { element_type } => {
+            let elem = cpp_type_for_field(element_type, None);
+            format!(
+                "nros::FixedSequence<{}, {}>",
+                elem, CPP_DEFAULT_SEQUENCE_CAPACITY
+            )
+        }
+
+        FieldType::BoundedSequence {
+            element_type,
+            max_size,
+        } => {
+            let elem = cpp_type_for_field(element_type, None);
+            format!("nros::FixedSequence<{}, {}>", elem, max_size)
+        }
+
+        FieldType::NamespacedType { package, name } => {
+            if let Some(pkg) = package {
+                format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
+            } else {
+                format!("msg_{}", to_snake_case(name))
+            }
+        }
+    }
+}
+
+/// Get the C++ array suffix for a field type (e.g., "[3]" for fixed arrays)
+///
+/// Unlike C where strings use array suffix, C++ uses `FixedString<N>` which
+/// doesn't need a suffix. Only fixed arrays need the suffix.
+pub fn cpp_array_suffix_for_field(field_type: &FieldType) -> String {
+    match field_type {
+        FieldType::Array { element_type, size } => {
+            let inner_suffix = cpp_array_suffix_for_field(element_type);
+            format!("[{}]{}", size, inner_suffix)
+        }
+        _ => String::new(),
+    }
+}
+
+/// Compute the maximum serialized CDR size for a set of C++ FFI fields.
+///
+/// Uses conservative estimates:
+/// - Primitives: type size + up to 7 bytes alignment padding
+/// - Strings: 4 (length) + capacity + 1 (null) + 3 (alignment)
+/// - Arrays: element_count × element_size (with alignment)
+/// - Sequences: 4 (length) + capacity × element_size (with alignment)
+/// - Nested: uses a fixed estimate (512 bytes per nested type)
+pub fn compute_serialized_size_max(fields: &[super::templates::CppFfiField]) -> usize {
+    let mut size = 4; // CDR header
+
+    for field in fields {
+        if field.is_primitive {
+            // Primitive: type size + alignment
+            size += primitive_cdr_size(&field.cdr_write_method) + 7;
+        } else if field.is_string {
+            // String: 4 (len) + capacity + 1 (null) + 3 (pad)
+            let cap = if field.repr_c_type.starts_with("[u8;") {
+                // Parse capacity from "[u8; N]"
+                field
+                    .repr_c_type
+                    .trim_start_matches("[u8; ")
+                    .trim_end_matches(']')
+                    .parse::<usize>()
+                    .unwrap_or(CPP_DEFAULT_STRING_CAPACITY)
+            } else {
+                CPP_DEFAULT_STRING_CAPACITY
+            };
+            size += 4 + cap + 1 + 3;
+        } else if field.is_array {
+            if field.is_primitive_element {
+                let elem_size = primitive_cdr_size(&field.element_cdr_write_method);
+                size += field.array_size * (elem_size + 7);
+            } else if field.is_string_element {
+                size += field.array_size * (4 + CPP_DEFAULT_STRING_CAPACITY + 4);
+            } else {
+                // Nested array
+                size += field.array_size * 512;
+            }
+        } else if field.is_sequence {
+            let cap = field.sequence_capacity;
+            size += 4; // length prefix
+            if field.is_primitive_element {
+                let elem_size = primitive_cdr_size(&field.element_cdr_write_method);
+                size += cap * (elem_size + 7);
+            } else if field.is_string_element {
+                size += cap * (4 + CPP_DEFAULT_STRING_CAPACITY + 4);
+            } else {
+                size += cap * 512;
+            }
+        } else if field.is_nested {
+            size += 512;
+        }
+    }
+
+    size
+}
+
+/// Get the CDR size of a primitive type based on its write method name
+fn primitive_cdr_size(write_method: &str) -> usize {
+    match write_method {
+        "write_bool" | "write_u8" | "write_i8" => 1,
+        "write_u16" | "write_i16" => 2,
+        "write_u32" | "write_i32" | "write_f32" => 4,
+        "write_u64" | "write_i64" | "write_f64" => 8,
+        _ => 4,
+    }
+}

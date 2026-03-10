@@ -416,3 +416,150 @@ pub struct ActionCSourceTemplate<'a> {
     pub has_result_fields: bool,
     pub has_feedback_fields: bool,
 }
+
+// ============================================================================
+// C++ Templates (for nros-cpp)
+// ============================================================================
+
+/// Field information for C++ FFI Rust code generation
+#[derive(Clone)]
+pub struct CppFfiField {
+    pub name: String,
+    /// Rust #[repr(C)] type (e.g., "i32", "[u8; 256]")
+    pub repr_c_type: String,
+    /// CDR write method (e.g., "write_i32", "write_string")
+    pub cdr_write_method: String,
+    /// CDR read method (e.g., "read_i32", "read_string")
+    pub cdr_read_method: String,
+    /// For arrays/sequences: element CDR write method
+    pub element_cdr_write_method: String,
+    /// For arrays/sequences: element CDR read method
+    pub element_cdr_read_method: String,
+    /// Array size for fixed arrays — 0 if not an array
+    pub array_size: usize,
+    /// Sequence capacity — 0 if not a sequence
+    pub sequence_capacity: usize,
+    /// Nested serialize function name (e.g., "serialize_pkg_msg_point_fields")
+    pub nested_serialize_fn: String,
+    /// Nested deserialize function name
+    pub nested_deserialize_fn: String,
+    /// String capacity (for string fields — used in deserialization)
+    pub string_capacity: usize,
+    /// Element string capacity (for arrays/sequences of strings)
+    pub element_string_capacity: usize,
+
+    // Type flags
+    pub is_primitive: bool,
+    pub is_string: bool,
+    pub is_array: bool,
+    pub is_sequence: bool,
+    pub is_nested: bool,
+    pub is_primitive_element: bool,
+    pub is_string_element: bool,
+}
+
+/// C++ field info for header generation (uses FixedString/FixedSequence types)
+#[derive(Clone)]
+pub struct CppField {
+    pub name: String,
+    /// C++ type (e.g., "int32_t", "nros::FixedString<256>")
+    pub cpp_type: String,
+    /// Array suffix (e.g., "[3]" for fixed arrays)
+    pub array_suffix: String,
+}
+
+/// Sequence helper struct definition for Rust #[repr(C)]
+#[derive(Clone)]
+pub struct SequenceStructDef {
+    /// Struct name (e.g., "std_msgs_msg_string_data_seq_t")
+    pub struct_name: String,
+    /// Element type (e.g., "i32", "[u8; 256]")
+    pub element_type: String,
+    /// Capacity
+    pub capacity: usize,
+}
+
+#[derive(Template)]
+#[template(path = "message_cpp.hpp.jinja", escape = "none")]
+pub struct MessageCppHeaderTemplate<'a> {
+    pub package_name: &'a str,
+    pub message_name: &'a str,
+    pub type_hash: &'a str,
+    pub guard_name: String,
+    pub cpp_package: String,
+    pub ffi_publish_fn: String,
+    pub ffi_deserialize_fn: String,
+    pub fields: Vec<CppField>,
+    pub constants: Vec<CConstant>,
+    pub dependencies: Vec<String>,
+    pub has_fields: bool,
+    pub serialized_size_max: usize,
+}
+
+#[derive(Template)]
+#[template(path = "message_cpp_ffi.rs.jinja", escape = "none")]
+pub struct MessageCppFfiTemplate<'a> {
+    pub package_name: &'a str,
+    pub message_name: &'a str,
+    pub repr_c_struct_name: String,
+    pub ffi_publish_fn: String,
+    pub ffi_deserialize_fn: String,
+    pub serialize_fn: String,
+    pub deserialize_fn: String,
+    pub fields: Vec<CppFfiField>,
+    pub sequence_structs: Vec<SequenceStructDef>,
+    pub has_fields: bool,
+    pub serialized_size_max: usize,
+}
+
+#[derive(Template)]
+#[template(path = "service_cpp.hpp.jinja", escape = "none")]
+pub struct ServiceCppHeaderTemplate<'a> {
+    pub package_name: &'a str,
+    pub service_name: &'a str,
+    pub type_hash: &'a str,
+    pub guard_name: String,
+    pub cpp_package: String,
+    pub request_ffi_publish_fn: String,
+    pub request_ffi_deserialize_fn: String,
+    pub response_ffi_publish_fn: String,
+    pub response_ffi_deserialize_fn: String,
+    pub request_fields: Vec<CppField>,
+    pub request_constants: Vec<CConstant>,
+    pub response_fields: Vec<CppField>,
+    pub response_constants: Vec<CConstant>,
+    pub dependencies: Vec<String>,
+    pub has_request_fields: bool,
+    pub has_response_fields: bool,
+    pub request_serialized_size_max: usize,
+    pub response_serialized_size_max: usize,
+}
+
+#[derive(Template)]
+#[template(path = "action_cpp.hpp.jinja", escape = "none")]
+pub struct ActionCppHeaderTemplate<'a> {
+    pub package_name: &'a str,
+    pub action_name: &'a str,
+    pub type_hash: &'a str,
+    pub guard_name: String,
+    pub cpp_package: String,
+    pub goal_ffi_publish_fn: String,
+    pub goal_ffi_deserialize_fn: String,
+    pub result_ffi_publish_fn: String,
+    pub result_ffi_deserialize_fn: String,
+    pub feedback_ffi_publish_fn: String,
+    pub feedback_ffi_deserialize_fn: String,
+    pub goal_fields: Vec<CppField>,
+    pub goal_constants: Vec<CConstant>,
+    pub result_fields: Vec<CppField>,
+    pub result_constants: Vec<CConstant>,
+    pub feedback_fields: Vec<CppField>,
+    pub feedback_constants: Vec<CConstant>,
+    pub dependencies: Vec<String>,
+    pub has_goal_fields: bool,
+    pub has_result_fields: bool,
+    pub has_feedback_fields: bool,
+    pub goal_serialized_size_max: usize,
+    pub result_serialized_size_max: usize,
+    pub feedback_serialized_size_max: usize,
+}

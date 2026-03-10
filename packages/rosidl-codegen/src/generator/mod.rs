@@ -1,5 +1,6 @@
 mod action;
 mod common;
+pub mod cpp;
 mod msg;
 mod srv;
 
@@ -9,6 +10,10 @@ pub use action::{
     generate_nros_inline_action,
 };
 pub use common::GeneratorError;
+pub use cpp::{
+    GeneratedCppActionPackage, GeneratedCppPackage, GeneratedCppServicePackage,
+    generate_cpp_action_package, generate_cpp_message_package, generate_cpp_service_package,
+};
 pub use msg::{
     GeneratedCPackage, GeneratedNrosPackage, GeneratedPackage, generate_c_message_package,
     generate_message_package, generate_nros_inline_message, generate_nros_message_package,
@@ -442,5 +447,164 @@ mod tests {
         // Check file names
         assert_eq!(pkg.header_name, "test_actions_action_fibonacci.h");
         assert_eq!(pkg.source_name, "test_actions_action_fibonacci.c");
+    }
+
+    // ========================================================================
+    // C++ Code Generation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_cpp_simple_message_generation() {
+        let msg = parse_message("int32 data\n").unwrap();
+        let type_hash = "TypeHashNotSupported";
+
+        let result = generate_cpp_message_package("std_msgs", "Int32", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Check header
+        assert!(pkg.header.contains("#ifndef STD_MSGS_MSG_INT32_HPP"));
+        assert!(pkg.header.contains("namespace std_msgs { namespace msg {"));
+        assert!(pkg.header.contains("struct Int32"));
+        assert!(pkg.header.contains("int32_t data"));
+        assert!(pkg.header.contains("TYPE_NAME"));
+        assert!(pkg.header.contains("TYPE_HASH"));
+        assert!(pkg.header.contains("SERIALIZED_SIZE_MAX"));
+        assert!(pkg.header.contains("ffi_publish"));
+        assert!(pkg.header.contains("ffi_deserialize"));
+
+        // Check FFI Rust
+        assert!(pkg.ffi_rs.contains("#[repr(C)]"));
+        assert!(pkg.ffi_rs.contains("std_msgs_msg_int32_t"));
+        assert!(pkg.ffi_rs.contains("write_i32"));
+        assert!(pkg.ffi_rs.contains("nros_cpp_publish_std_msgs_msg_int32"));
+        assert!(
+            pkg.ffi_rs
+                .contains("nros_cpp_deserialize_std_msgs_msg_int32")
+        );
+
+        // Check filenames
+        assert_eq!(pkg.header_name, "std_msgs_msg_int32.hpp");
+        assert_eq!(pkg.ffi_rs_name, "std_msgs_msg_int32_ffi.rs");
+    }
+
+    #[test]
+    fn test_cpp_message_with_string() {
+        let msg = parse_message("string data\n").unwrap();
+        let type_hash = "TypeHashNotSupported";
+
+        let result = generate_cpp_message_package("std_msgs", "String", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // C++ header should use FixedString
+        assert!(pkg.header.contains("nros::FixedString<256>"));
+        assert!(pkg.header.contains("fixed_string.hpp"));
+
+        // Rust FFI should use [u8; 256] and write_string
+        assert!(pkg.ffi_rs.contains("[u8; 256]"));
+        assert!(pkg.ffi_rs.contains("write_string"));
+    }
+
+    #[test]
+    fn test_cpp_message_with_array() {
+        let msg = parse_message("int32[3] values\n").unwrap();
+        let type_hash = "TypeHashNotSupported";
+
+        let result = generate_cpp_message_package("test_msgs", "IntArray", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // C++ header: int32_t values[3]
+        assert!(pkg.header.contains("int32_t"));
+        assert!(pkg.header.contains("[3]"));
+
+        // Rust FFI: [i32; 3] and loop with write_i32
+        assert!(pkg.ffi_rs.contains("[i32; 3]"));
+        assert!(pkg.ffi_rs.contains("for i in 0..3"));
+    }
+
+    #[test]
+    fn test_cpp_message_with_sequence() {
+        let msg = parse_message("int32[] data\n").unwrap();
+        let type_hash = "TypeHashNotSupported";
+
+        let result = generate_cpp_message_package("test_msgs", "IntSeq", &msg, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // C++ header: FixedSequence
+        assert!(pkg.header.contains("nros::FixedSequence<int32_t, 64>"));
+
+        // Rust FFI: sequence struct with size + data
+        assert!(pkg.ffi_rs.contains("_seq_t"));
+        assert!(pkg.ffi_rs.contains("pub size: u32"));
+        assert!(pkg.ffi_rs.contains("write_u32"));
+    }
+
+    #[test]
+    fn test_cpp_simple_service_generation() {
+        let srv = parse_service("int32 a\nint32 b\n---\nint32 sum\n").unwrap();
+        let type_hash = "TypeHashNotSupported";
+
+        let result = generate_cpp_service_package("test_srvs", "AddTwoInts", &srv, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Header checks
+        assert!(
+            pkg.header
+                .contains("#ifndef TEST_SRVS_SRV_ADD_TWO_INTS_HPP")
+        );
+        assert!(pkg.header.contains("namespace test_srvs { namespace srv {"));
+        assert!(pkg.header.contains("struct AddTwoInts"));
+        assert!(pkg.header.contains("struct Request"));
+        assert!(pkg.header.contains("struct Response"));
+        assert!(pkg.header.contains("int32_t a"));
+        assert!(pkg.header.contains("int32_t sum"));
+
+        // FFI files
+        assert!(pkg.request_ffi_rs.contains("#[repr(C)]"));
+        assert!(pkg.response_ffi_rs.contains("#[repr(C)]"));
+    }
+
+    #[test]
+    fn test_cpp_simple_action_generation() {
+        let action =
+            parse_action("int32 order\n---\nint32 result_code\n---\nint32 progress\n").unwrap();
+        let type_hash = "TypeHashNotSupported";
+
+        let result =
+            generate_cpp_action_package("example_interfaces", "Fibonacci", &action, type_hash);
+        assert!(result.is_ok());
+
+        let pkg = result.unwrap();
+
+        // Header checks
+        assert!(
+            pkg.header
+                .contains("#ifndef EXAMPLE_INTERFACES_ACTION_FIBONACCI_HPP")
+        );
+        assert!(
+            pkg.header
+                .contains("namespace example_interfaces { namespace action {")
+        );
+        assert!(pkg.header.contains("struct Fibonacci"));
+        assert!(pkg.header.contains("struct Goal"));
+        assert!(pkg.header.contains("struct Result"));
+        assert!(pkg.header.contains("struct Feedback"));
+        assert!(pkg.header.contains("int32_t order"));
+        assert!(pkg.header.contains("int32_t result_code"));
+        assert!(pkg.header.contains("int32_t progress"));
+
+        // FFI files
+        assert!(pkg.goal_ffi_rs.contains("#[repr(C)]"));
+        assert!(pkg.result_ffi_rs.contains("#[repr(C)]"));
+        assert!(pkg.feedback_ffi_rs.contains("#[repr(C)]"));
     }
 }

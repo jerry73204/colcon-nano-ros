@@ -1,8 +1,9 @@
-use crate::templates::{CField, FieldKind, NrosField};
+use crate::templates::{CField, CppFfiField, CppField, FieldKind, NrosField, SequenceStructDef};
 use crate::types::{
-    C_DEFAULT_SEQUENCE_CAPACITY, NrosCodegenMode, c_array_suffix_for_field, c_cdr_read_method,
-    c_cdr_write_method, c_type_for_field, escape_keyword, nros_type_for_field_with_mode,
-    to_c_package_name,
+    C_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_STRING_CAPACITY,
+    NrosCodegenMode, c_array_suffix_for_field, c_cdr_read_method, c_cdr_write_method,
+    c_type_for_field, cpp_array_suffix_for_field, cpp_type_for_field, escape_keyword,
+    nros_type_for_field_with_mode, repr_c_type_for_field, to_c_package_name,
 };
 use crate::utils::to_snake_case;
 use rosidl_parser::FieldType;
@@ -292,4 +293,238 @@ pub(super) fn build_c_field(
         is_primitive_element,
         is_string_element,
     }
+}
+
+/// Build a CppField for C++ header generation
+pub(super) fn build_cpp_field(name: &str, field_type: &FieldType) -> CppField {
+    let escaped_name = escape_keyword(name);
+    let cpp_type = cpp_type_for_field(field_type, None);
+    let array_suffix = cpp_array_suffix_for_field(field_type);
+
+    // For arrays, the cpp_type already contains the base type, and array_suffix has [N]
+    // For FixedString/FixedSequence, cpp_type is the full type, no suffix needed
+    // But for fixed-size arrays of primitives, cpp_type is "int32_t[3]" — split it
+    let (final_type, final_suffix) = if !array_suffix.is_empty() {
+        // Array field: base type is without the [N] suffix
+        let base = match field_type {
+            FieldType::Array { element_type, .. } => cpp_type_for_field(element_type, None),
+            _ => cpp_type,
+        };
+        (base, array_suffix)
+    } else {
+        (cpp_type, String::new())
+    };
+
+    CppField {
+        name: escaped_name,
+        cpp_type: final_type,
+        array_suffix: final_suffix,
+    }
+}
+
+/// Build a CppFfiField and optional SequenceStructDef for Rust FFI glue generation
+pub(super) fn build_cpp_ffi_field(
+    name: &str,
+    field_type: &FieldType,
+    struct_name: &str,
+    current_package: Option<&str>,
+) -> (CppFfiField, Option<SequenceStructDef>) {
+    let escaped_name = escape_keyword(name);
+
+    // Determine type characteristics
+    let (is_primitive, primitive_type) = match field_type {
+        FieldType::Primitive(prim) => (true, Some(prim)),
+        _ => (false, None),
+    };
+
+    let is_string = matches!(
+        field_type,
+        FieldType::String
+            | FieldType::BoundedString(_)
+            | FieldType::WString
+            | FieldType::BoundedWString(_)
+    );
+
+    let is_array = matches!(field_type, FieldType::Array { .. });
+    let is_sequence = matches!(
+        field_type,
+        FieldType::Sequence { .. } | FieldType::BoundedSequence { .. }
+    );
+    let is_nested = matches!(field_type, FieldType::NamespacedType { .. });
+
+    // Array/sequence size info
+    let (array_size, sequence_capacity) = match field_type {
+        FieldType::Array { size, .. } => (*size, 0),
+        FieldType::Sequence { .. } => (0, CPP_DEFAULT_SEQUENCE_CAPACITY),
+        FieldType::BoundedSequence { max_size, .. } => (0, *max_size),
+        _ => (0, 0),
+    };
+
+    // Element type info
+    let (is_primitive_element, is_string_element, element_type) = match field_type {
+        FieldType::Array { element_type, .. }
+        | FieldType::Sequence { element_type }
+        | FieldType::BoundedSequence { element_type, .. } => {
+            let is_prim = matches!(element_type.as_ref(), FieldType::Primitive(_));
+            let is_str = matches!(
+                element_type.as_ref(),
+                FieldType::String
+                    | FieldType::BoundedString(_)
+                    | FieldType::WString
+                    | FieldType::BoundedWString(_)
+            );
+            (is_prim, is_str, Some(element_type.as_ref()))
+        }
+        _ => (false, false, None),
+    };
+
+    // CDR methods for primitives
+    let (cdr_write_method, cdr_read_method) = if let Some(prim) = primitive_type {
+        (
+            c_cdr_write_method(prim).to_string(),
+            c_cdr_read_method(prim).to_string(),
+        )
+    } else {
+        (String::new(), String::new())
+    };
+
+    let (element_cdr_write_method, element_cdr_read_method) =
+        if let Some(FieldType::Primitive(prim)) = element_type {
+            (
+                c_cdr_write_method(prim).to_string(),
+                c_cdr_read_method(prim).to_string(),
+            )
+        } else {
+            (String::new(), String::new())
+        };
+
+    // Nested function names
+    let nested_serialize_fn = if let FieldType::NamespacedType { package, name: n } = field_type {
+        let pkg = package.as_deref().or(current_package).unwrap_or("unknown");
+        format!(
+            "serialize_{}_msg_{}_fields",
+            to_c_package_name(pkg),
+            to_snake_case(n)
+        )
+    } else {
+        String::new()
+    };
+
+    let nested_deserialize_fn = if let FieldType::NamespacedType { package, name: n } = field_type {
+        let pkg = package.as_deref().or(current_package).unwrap_or("unknown");
+        format!(
+            "deserialize_{}_msg_{}_fields",
+            to_c_package_name(pkg),
+            to_snake_case(n)
+        )
+    } else {
+        String::new()
+    };
+
+    // Element nested function names (for arrays/sequences of nested types)
+    let (elem_nested_ser, elem_nested_deser) =
+        if let Some(FieldType::NamespacedType { package, name: n }) = element_type {
+            let pkg = package.as_deref().or(current_package).unwrap_or("unknown");
+            (
+                format!(
+                    "serialize_{}_msg_{}_fields",
+                    to_c_package_name(pkg),
+                    to_snake_case(n)
+                ),
+                format!(
+                    "deserialize_{}_msg_{}_fields",
+                    to_c_package_name(pkg),
+                    to_snake_case(n)
+                ),
+            )
+        } else {
+            (String::new(), String::new())
+        };
+
+    // Compute repr(C) type
+    let repr_c_type = if is_sequence {
+        // Sequence uses named struct
+        let seq_struct_name = format!("{}_{}_seq_t", struct_name, to_snake_case(name));
+        seq_struct_name
+    } else {
+        repr_c_type_for_field(field_type, current_package)
+    };
+
+    // Build sequence struct def if needed
+    let seq_struct = if is_sequence {
+        let elem_repr_c = match element_type {
+            Some(FieldType::Primitive(prim)) => {
+                use crate::types::repr_c_type_for_field;
+                repr_c_type_for_field(&FieldType::Primitive(*prim), current_package)
+            }
+            Some(FieldType::String) => format!("[u8; {}]", CPP_DEFAULT_STRING_CAPACITY),
+            Some(FieldType::BoundedString(sz)) => format!("[u8; {}]", sz),
+            Some(FieldType::WString) => format!("[u8; {}]", CPP_DEFAULT_STRING_CAPACITY),
+            Some(FieldType::BoundedWString(sz)) => format!("[u8; {}]", sz),
+            Some(FieldType::NamespacedType { package, name: n }) => {
+                if let Some(pkg) = package {
+                    format!("{}_msg_{}_t", to_c_package_name(pkg), to_snake_case(n))
+                } else {
+                    format!("msg_{}_t", to_snake_case(n))
+                }
+            }
+            _ => "u8".to_string(),
+        };
+        Some(SequenceStructDef {
+            struct_name: format!("{}_{}_seq_t", struct_name, to_snake_case(name)),
+            element_type: elem_repr_c,
+            capacity: sequence_capacity,
+        })
+    } else {
+        None
+    };
+
+    // Use element nested functions for array/sequence elements
+    let final_nested_ser = if is_nested {
+        nested_serialize_fn
+    } else {
+        elem_nested_ser
+    };
+    let final_nested_deser = if is_nested {
+        nested_deserialize_fn
+    } else {
+        elem_nested_deser
+    };
+
+    // String capacity for deserialization
+    let string_capacity = match field_type {
+        FieldType::String | FieldType::WString => CPP_DEFAULT_STRING_CAPACITY,
+        FieldType::BoundedString(sz) | FieldType::BoundedWString(sz) => *sz,
+        _ => 0,
+    };
+
+    let element_string_capacity = match element_type {
+        Some(FieldType::String) | Some(FieldType::WString) => CPP_DEFAULT_STRING_CAPACITY,
+        Some(FieldType::BoundedString(sz)) | Some(FieldType::BoundedWString(sz)) => *sz,
+        _ => 0,
+    };
+
+    let field = CppFfiField {
+        name: escaped_name,
+        repr_c_type,
+        cdr_write_method,
+        cdr_read_method,
+        element_cdr_write_method,
+        element_cdr_read_method,
+        array_size,
+        sequence_capacity,
+        nested_serialize_fn: final_nested_ser,
+        nested_deserialize_fn: final_nested_deser,
+        string_capacity,
+        element_string_capacity,
+        is_primitive,
+        is_string,
+        is_array,
+        is_sequence,
+        is_nested,
+        is_primitive_element,
+        is_string_element,
+    };
+
+    (field, seq_struct)
 }

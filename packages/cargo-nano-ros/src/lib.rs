@@ -105,6 +105,15 @@ pub struct GenerateCConfig {
     pub verbose: bool,
 }
 
+/// Configuration for C++ code generation
+#[derive(Debug, Clone)]
+pub struct GenerateCppConfig {
+    /// Path to JSON arguments file
+    pub args_file: PathBuf,
+    /// Enable verbose output
+    pub verbose: bool,
+}
+
 /// Parse a ROS edition string into a `RosEdition` enum value.
 fn parse_ros_edition(s: &str) -> Result<RosEdition> {
     match s {
@@ -634,6 +643,267 @@ pub fn generate_c_from_args_file(config: GenerateCConfig) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Generate C++ bindings from an arguments file
+///
+/// This is called by the CMake `nano_ros_generate_interfaces(LANGUAGE CPP)` function.
+/// It reads a JSON arguments file and generates C++ headers + Rust FFI glue.
+pub fn generate_cpp_from_args_file(config: GenerateCppConfig) -> Result<()> {
+    // Read and parse arguments file (same format as C)
+    let args_content = std::fs::read_to_string(&config.args_file)
+        .wrap_err_with(|| format!("Failed to read args file: {}", config.args_file.display()))?;
+
+    let args: GenerateCArgs = serde_json::from_str(&args_content)
+        .wrap_err_with(|| format!("Failed to parse args file: {}", config.args_file.display()))?;
+
+    let edition = parse_ros_edition(&args.ros_edition)?;
+    let type_hash = edition.type_hash();
+
+    if config.verbose {
+        println!("Generating C++ bindings for package: {}", args.package_name);
+        println!("Output directory: {}", args.output_dir.display());
+        println!("Interface files: {:?}", args.interface_files);
+        println!("ROS edition: {:?}", edition);
+    }
+
+    // Create output directories
+    let msg_dir = args.output_dir.join("msg");
+    let srv_dir = args.output_dir.join("srv");
+    let action_dir = args.output_dir.join("action");
+    std::fs::create_dir_all(&msg_dir)?;
+    std::fs::create_dir_all(&srv_dir)?;
+    std::fs::create_dir_all(&action_dir)?;
+
+    // Track generated files
+    let mut msg_headers = Vec::new();
+    let mut srv_headers = Vec::new();
+    let mut action_headers = Vec::new();
+    let mut ffi_rs_files = Vec::new();
+
+    // Process each interface file
+    for file_path in &args.interface_files {
+        let extension = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+        let file_name = file_path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| eyre!("Invalid interface file name: {}", file_path.display()))?;
+
+        // Read file content
+        let content = std::fs::read_to_string(file_path)
+            .wrap_err_with(|| format!("Failed to read interface file: {}", file_path.display()))?;
+
+        match extension {
+            "msg" => {
+                let parsed = rosidl_parser::parse_message(&content)
+                    .wrap_err_with(|| format!("Failed to parse message: {}", file_name))?;
+
+                let generated = rosidl_codegen::generate_cpp_message_package(
+                    &args.package_name,
+                    file_name,
+                    &parsed,
+                    type_hash,
+                )
+                .wrap_err_with(|| {
+                    format!("Failed to generate C++ code for message: {}", file_name)
+                })?;
+
+                // Write header and FFI Rust glue
+                std::fs::write(msg_dir.join(&generated.header_name), &generated.header)?;
+                std::fs::write(msg_dir.join(&generated.ffi_rs_name), &generated.ffi_rs)?;
+
+                msg_headers.push(generated.header_name);
+                ffi_rs_files.push(format!("msg/{}", generated.ffi_rs_name));
+
+                if config.verbose {
+                    println!("  Generated message: {}", file_name);
+                }
+            }
+            "srv" => {
+                let parsed = rosidl_parser::parse_service(&content)
+                    .wrap_err_with(|| format!("Failed to parse service: {}", file_name))?;
+
+                let generated = rosidl_codegen::generate_cpp_service_package(
+                    &args.package_name,
+                    file_name,
+                    &parsed,
+                    type_hash,
+                )
+                .wrap_err_with(|| {
+                    format!("Failed to generate C++ code for service: {}", file_name)
+                })?;
+
+                // Write header and FFI Rust glue
+                std::fs::write(srv_dir.join(&generated.header_name), &generated.header)?;
+                std::fs::write(
+                    srv_dir.join(&generated.request_ffi_rs_name),
+                    &generated.request_ffi_rs,
+                )?;
+                std::fs::write(
+                    srv_dir.join(&generated.response_ffi_rs_name),
+                    &generated.response_ffi_rs,
+                )?;
+
+                srv_headers.push(generated.header_name);
+                ffi_rs_files.push(format!("srv/{}", generated.request_ffi_rs_name));
+                ffi_rs_files.push(format!("srv/{}", generated.response_ffi_rs_name));
+
+                if config.verbose {
+                    println!("  Generated service: {}", file_name);
+                }
+            }
+            "action" => {
+                let parsed = rosidl_parser::parse_action(&content)
+                    .wrap_err_with(|| format!("Failed to parse action: {}", file_name))?;
+
+                let generated = rosidl_codegen::generate_cpp_action_package(
+                    &args.package_name,
+                    file_name,
+                    &parsed,
+                    type_hash,
+                )
+                .wrap_err_with(|| {
+                    format!("Failed to generate C++ code for action: {}", file_name)
+                })?;
+
+                // Write header and FFI Rust glue
+                std::fs::write(action_dir.join(&generated.header_name), &generated.header)?;
+                std::fs::write(
+                    action_dir.join(&generated.goal_ffi_rs_name),
+                    &generated.goal_ffi_rs,
+                )?;
+                std::fs::write(
+                    action_dir.join(&generated.result_ffi_rs_name),
+                    &generated.result_ffi_rs,
+                )?;
+                std::fs::write(
+                    action_dir.join(&generated.feedback_ffi_rs_name),
+                    &generated.feedback_ffi_rs,
+                )?;
+
+                action_headers.push(generated.header_name);
+                ffi_rs_files.push(format!("action/{}", generated.goal_ffi_rs_name));
+                ffi_rs_files.push(format!("action/{}", generated.result_ffi_rs_name));
+                ffi_rs_files.push(format!("action/{}", generated.feedback_ffi_rs_name));
+
+                if config.verbose {
+                    println!("  Generated action: {}", file_name);
+                }
+            }
+            _ => {
+                return Err(eyre!(
+                    "Unknown interface file type: {} (expected .msg, .srv, or .action)",
+                    file_path.display()
+                ));
+            }
+        }
+    }
+
+    // Generate C++ umbrella header
+    let umbrella_hpp = generate_cpp_umbrella_header(
+        &args.package_name,
+        &msg_headers,
+        &srv_headers,
+        &action_headers,
+        &args.dependencies,
+    );
+    let umbrella_path = args.output_dir.join(format!("{}.hpp", args.package_name));
+    std::fs::write(&umbrella_path, umbrella_hpp)?;
+
+    // Generate Rust FFI mod.rs
+    let mod_rs = generate_ffi_mod_rs(&ffi_rs_files);
+    let mod_rs_path = args.output_dir.join("mod.rs");
+    std::fs::write(&mod_rs_path, mod_rs)?;
+
+    if config.verbose {
+        println!("  Generated umbrella header: {}.hpp", args.package_name);
+        println!("  Generated FFI mod.rs ({} modules)", ffi_rs_files.len());
+    }
+
+    println!(
+        "✓ Generated {} messages, {} services, {} actions for {}",
+        msg_headers.len(),
+        srv_headers.len(),
+        action_headers.len(),
+        args.package_name
+    );
+
+    Ok(())
+}
+
+/// Generate C++ umbrella header
+fn generate_cpp_umbrella_header(
+    package_name: &str,
+    msg_headers: &[String],
+    srv_headers: &[String],
+    action_headers: &[String],
+    dependencies: &[String],
+) -> String {
+    let guard_name = format!("{}_HPP", package_name.to_uppercase().replace('-', "_"));
+
+    let mut content = String::new();
+    content.push_str(&format!("#ifndef {}\n", guard_name));
+    content.push_str(&format!("#define {}\n\n", guard_name));
+
+    content.push_str("#include \"nros/fixed_string.hpp\"\n");
+    content.push_str("#include \"nros/fixed_sequence.hpp\"\n\n");
+
+    if !dependencies.is_empty() {
+        content.push_str("// Dependencies\n");
+        for dep in dependencies {
+            content.push_str(&format!("#include <{}.hpp>\n", dep));
+        }
+        content.push('\n');
+    }
+
+    if !msg_headers.is_empty() {
+        content.push_str("// Messages\n");
+        for header in msg_headers {
+            content.push_str(&format!("#include \"msg/{}\"\n", header));
+        }
+        content.push('\n');
+    }
+
+    if !srv_headers.is_empty() {
+        content.push_str("// Services\n");
+        for header in srv_headers {
+            content.push_str(&format!("#include \"srv/{}\"\n", header));
+        }
+        content.push('\n');
+    }
+
+    if !action_headers.is_empty() {
+        content.push_str("// Actions\n");
+        for header in action_headers {
+            content.push_str(&format!("#include \"action/{}\"\n", header));
+        }
+        content.push('\n');
+    }
+
+    content.push_str(&format!("#endif  // {}\n", guard_name));
+    content
+}
+
+/// Generate Rust FFI mod.rs that includes all FFI modules
+fn generate_ffi_mod_rs(ffi_files: &[String]) -> String {
+    let mut content = String::new();
+    content.push_str("// Auto-generated — do not edit\n");
+    content.push_str("// Includes all C++ FFI glue modules\n\n");
+
+    for file in ffi_files {
+        // Convert "msg/std_msgs_msg_string_ffi.rs" → include path
+        content.push_str(&format!("#[path = \"{}\"]\n", file));
+        // Module name: strip path and .rs extension
+        let mod_name = file
+            .rsplit('/')
+            .next()
+            .unwrap_or(file)
+            .trim_end_matches(".rs");
+        content.push_str(&format!("mod {};\n\n", mod_name));
+    }
+
+    content
 }
 
 /// Generate umbrella header that includes all generated headers
