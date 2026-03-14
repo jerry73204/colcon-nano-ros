@@ -298,7 +298,16 @@ function(nano_ros_generate_interfaces target)
       set(_ffi_crate_src "${_ffi_crate_dir}/src")
       set(_ffi_target_dir "${_ffi_crate_dir}/target")
       set(_serdes_dir "${_NANO_ROS_PREFIX}/share/nano-ros/rust/nros-serdes")
-      set(_ffi_lib "${_ffi_target_dir}/release/libnano_ros_cpp_ffi_${target}.a")
+
+      # Cross-compilation: when Rust_CARGO_TARGET is set (e.g. by a CMake
+      # toolchain file), pass --target to cargo and adjust the output path.
+      if(DEFINED Rust_CARGO_TARGET)
+        set(_ffi_cargo_target_flag "--target" "${Rust_CARGO_TARGET}")
+        set(_ffi_lib "${_ffi_target_dir}/${Rust_CARGO_TARGET}/release/libnano_ros_cpp_ffi_${target}.a")
+      else()
+        set(_ffi_cargo_target_flag "")
+        set(_ffi_lib "${_ffi_target_dir}/release/libnano_ros_cpp_ffi_${target}.a")
+      endif()
 
       file(MAKE_DIRECTORY "${_ffi_crate_src}")
 
@@ -321,7 +330,7 @@ function(nano_ros_generate_interfaces target)
       add_custom_command(
         OUTPUT "${_ffi_lib}"
         COMMAND cargo build --release --manifest-path "${_ffi_crate_dir}/Cargo.toml"
-                --target-dir "${_ffi_target_dir}"
+                --target-dir "${_ffi_target_dir}" ${_ffi_cargo_target_flag}
         DEPENDS ${_generated_rs_files} "${_ffi_crate_dir}/Cargo.toml" "${_ffi_crate_src}/lib.rs"
         WORKING_DIRECTORY "${_ffi_crate_dir}"
         COMMENT "Building Rust FFI glue for ${target} C++ bindings"

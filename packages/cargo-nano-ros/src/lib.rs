@@ -96,13 +96,28 @@ pub struct InstallConfig {
     pub verbose: bool,
 }
 
-/// Configuration for C code generation
+/// Configuration for C code generation (from JSON args file, for CMake)
 #[derive(Debug, Clone)]
 pub struct GenerateCConfig {
     /// Path to JSON arguments file
     pub args_file: PathBuf,
     /// Enable verbose output
     pub verbose: bool,
+}
+
+/// Configuration for C code generation from package.xml (standalone mode)
+#[derive(Debug, Clone)]
+pub struct GenerateCStandaloneConfig {
+    /// Path to package.xml
+    pub manifest_path: PathBuf,
+    /// Output directory for generated C bindings
+    pub output_dir: PathBuf,
+    /// Overwrite existing bindings
+    pub force: bool,
+    /// Enable verbose output
+    pub verbose: bool,
+    /// ROS 2 edition for type hash format ("humble" or "iron")
+    pub ros_edition: String,
 }
 
 /// Configuration for C++ code generation
@@ -640,6 +655,192 @@ pub fn generate_c_from_args_file(config: GenerateCConfig) -> Result<()> {
         srv_headers.len(),
         action_headers.len(),
         args.package_name
+    );
+
+    Ok(())
+}
+
+/// Generate C bindings from package.xml dependencies (standalone mode).
+///
+/// This provides the same UX as `generate_from_package_xml()` (Rust) but
+/// generates C code instead. It:
+/// 1. Parses package.xml to find interface dependencies
+/// 2. Resolves transitive dependencies via ament index / bundled interfaces
+/// 3. Collects .msg/.srv/.action files for each interface package
+/// 4. Generates C code (headers + sources) in the output directory
+pub fn generate_c_from_package_xml(config: GenerateCStandaloneConfig) -> Result<()> {
+    use package_xml::PackageXml;
+
+    let edition = parse_ros_edition(&config.ros_edition)?;
+    let type_hash = edition.type_hash();
+
+    // Parse package.xml
+    let pkg_xml = PackageXml::parse(&config.manifest_path)?;
+
+    if config.verbose {
+        println!("Package: {} v{}", pkg_xml.name, pkg_xml.version);
+        println!(
+            "Dependencies from package.xml: {:?}",
+            pkg_xml.all_dependencies()
+        );
+    }
+
+    // Load ament index (with bundled interface fallback)
+    let index = load_index_with_fallback(config.verbose)?;
+
+    // Resolve all dependencies (including transitive)
+    let all_deps =
+        resolve_transitive_dependencies(&index, pkg_xml.all_dependencies(), config.verbose)?;
+
+    // Filter to interface packages only
+    let interface_packages = filter_interface_packages(&index, &all_deps, config.verbose)?;
+
+    if interface_packages.is_empty() {
+        println!("No interface packages found in dependencies");
+        return Ok(());
+    }
+
+    println!(
+        "Generating C bindings for {} interface packages...",
+        interface_packages.len()
+    );
+
+    // Create output directory
+    std::fs::create_dir_all(&config.output_dir)?;
+
+    for (pkg_name, package) in &interface_packages {
+        let pkg_output = config.output_dir.join(pkg_name);
+
+        // Skip if exists and not forcing
+        if pkg_output.exists() && !config.force {
+            if config.verbose {
+                println!("  Skipping {} (already exists)", pkg_name);
+            }
+            continue;
+        }
+
+        // Collect interface files from the package's share directory
+        let mut interface_files = Vec::new();
+        for subdir in &["msg", "srv", "action"] {
+            let dir = package.share_dir.join(subdir);
+            if dir.exists() {
+                let mut entries: Vec<_> = std::fs::read_dir(&dir)?
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| e == "msg" || e == "srv" || e == "action")
+                            .unwrap_or(false)
+                    })
+                    .collect();
+                entries.sort();
+                interface_files.extend(entries);
+            }
+        }
+
+        if interface_files.is_empty() {
+            continue;
+        }
+
+        if config.verbose {
+            println!("  Generating C bindings for {}...", pkg_name);
+        }
+
+        // Create output directories
+        let msg_dir = pkg_output.join("msg");
+        let srv_dir = pkg_output.join("srv");
+        let action_dir = pkg_output.join("action");
+        std::fs::create_dir_all(&msg_dir)?;
+        std::fs::create_dir_all(&srv_dir)?;
+        std::fs::create_dir_all(&action_dir)?;
+
+        // Track generated files for umbrella header
+        let mut msg_headers = Vec::new();
+        let mut srv_headers = Vec::new();
+        let mut action_headers = Vec::new();
+
+        // Collect dependency names for umbrella header
+        let pkg_xml_path = package.share_dir.join("package.xml");
+        let pkg_deps: Vec<String> = if pkg_xml_path.exists() {
+            if let Ok(dep_xml) = package_xml::PackageXml::parse(&pkg_xml_path) {
+                dep_xml
+                    .all_dependencies()
+                    .iter()
+                    .filter(|d| interface_packages.iter().any(|(n, _)| n == *d))
+                    .cloned()
+                    .collect()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+
+        for file_path in &interface_files {
+            let extension = file_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let file_name = file_path
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .ok_or_else(|| {
+                    eyre!("Invalid interface file name: {}", file_path.display())
+                })?;
+            let content = std::fs::read_to_string(file_path).wrap_err_with(|| {
+                format!("Failed to read interface file: {}", file_path.display())
+            })?;
+
+            match extension {
+                "msg" => {
+                    let parsed = rosidl_parser::parse_message(&content)
+                        .wrap_err_with(|| format!("Failed to parse message: {}", file_name))?;
+                    let generated = rosidl_codegen::generate_c_message_package(
+                        pkg_name, file_name, &parsed, type_hash,
+                    )?;
+                    std::fs::write(msg_dir.join(&generated.header_name), &generated.header)?;
+                    std::fs::write(msg_dir.join(&generated.source_name), &generated.source)?;
+                    msg_headers.push(generated.header_name);
+                }
+                "srv" => {
+                    let parsed = rosidl_parser::parse_service(&content)
+                        .wrap_err_with(|| format!("Failed to parse service: {}", file_name))?;
+                    let generated = rosidl_codegen::generate_c_service_package(
+                        pkg_name, file_name, &parsed, type_hash,
+                    )?;
+                    std::fs::write(srv_dir.join(&generated.header_name), &generated.header)?;
+                    std::fs::write(srv_dir.join(&generated.source_name), &generated.source)?;
+                    srv_headers.push(generated.header_name);
+                }
+                "action" => {
+                    let parsed = rosidl_parser::parse_action(&content)
+                        .wrap_err_with(|| format!("Failed to parse action: {}", file_name))?;
+                    let generated = rosidl_codegen::generate_c_action_package(
+                        pkg_name, file_name, &parsed, type_hash,
+                    )?;
+                    std::fs::write(action_dir.join(&generated.header_name), &generated.header)?;
+                    std::fs::write(action_dir.join(&generated.source_name), &generated.source)?;
+                    action_headers.push(generated.header_name);
+                }
+                _ => {}
+            }
+        }
+
+        // Generate umbrella header
+        let umbrella =
+            generate_umbrella_header(pkg_name, &msg_headers, &srv_headers, &action_headers, &pkg_deps);
+        std::fs::write(pkg_output.join(format!("{}.h", pkg_name)), umbrella)?;
+
+        println!(
+            "  ✓ {} ({} messages, {} services, {} actions)",
+            pkg_name,
+            msg_headers.len(),
+            srv_headers.len(),
+            action_headers.len()
+        );
+    }
+
+    println!(
+        "✓ Generated C bindings in {}",
+        config.output_dir.display()
     );
 
     Ok(())

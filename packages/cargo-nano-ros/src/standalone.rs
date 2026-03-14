@@ -80,14 +80,32 @@ enum Command {
         ros_edition: String,
     },
 
-    /// Generate C bindings for interface files (.msg, .srv, .action)
+    /// Generate C bindings from package.xml or JSON arguments file
     ///
-    /// Generates C code for use with nros-c library. Called by
-    /// nano_ros_generate_interfaces() CMake function.
+    /// In standalone mode (default): reads package.xml, resolves interface
+    /// dependencies, and generates C code in the output directory.
+    /// With --args-file: reads a JSON arguments file (for CMake integration).
     GenerateC {
-        /// Path to JSON arguments file
+        /// Path to JSON arguments file (for CMake integration).
+        /// When provided, --manifest-path and --output are ignored.
         #[arg(long)]
-        args_file: PathBuf,
+        args_file: Option<PathBuf>,
+
+        /// Path to package.xml (default: ./package.xml)
+        #[arg(long, default_value = "package.xml")]
+        manifest_path: PathBuf,
+
+        /// Output directory for generated bindings (default: ./generated)
+        #[arg(long, short, default_value = "generated")]
+        output: PathBuf,
+
+        /// Overwrite existing bindings
+        #[arg(long)]
+        force: bool,
+
+        /// ROS 2 edition for type hash format (humble or iron)
+        #[arg(long, default_value = "humble")]
+        ros_edition: String,
     },
 
     /// Generate bindings for a single ROS 2 package (low-level)
@@ -155,13 +173,32 @@ fn main() -> Result<()> {
             })?;
         }
 
-        Command::GenerateC { args_file } => {
-            let cfg = cargo_nano_ros::GenerateCConfig {
-                args_file,
-                verbose: cli.verbose,
-            };
-            cargo_nano_ros::generate_c_from_args_file(cfg)?;
-            println!("✓ C bindings generated successfully");
+        Command::GenerateC {
+            args_file,
+            manifest_path,
+            output,
+            force,
+            ros_edition,
+        } => {
+            if let Some(args_file) = args_file {
+                // CMake mode: use JSON args file
+                let cfg = cargo_nano_ros::GenerateCConfig {
+                    args_file,
+                    verbose: cli.verbose,
+                };
+                cargo_nano_ros::generate_c_from_args_file(cfg)?;
+                println!("✓ C bindings generated successfully");
+            } else {
+                // Standalone mode: read package.xml
+                let cfg = cargo_nano_ros::GenerateCStandaloneConfig {
+                    manifest_path,
+                    output_dir: output,
+                    force,
+                    verbose: cli.verbose,
+                    ros_edition,
+                };
+                cargo_nano_ros::generate_c_from_package_xml(cfg)?;
+            }
         }
 
         Command::Bindgen {
