@@ -782,9 +782,7 @@ pub fn generate_c_from_package_xml(config: GenerateCStandaloneConfig) -> Result<
             let file_name = file_path
                 .file_stem()
                 .and_then(|n| n.to_str())
-                .ok_or_else(|| {
-                    eyre!("Invalid interface file name: {}", file_path.display())
-                })?;
+                .ok_or_else(|| eyre!("Invalid interface file name: {}", file_path.display()))?;
             let content = std::fs::read_to_string(file_path).wrap_err_with(|| {
                 format!("Failed to read interface file: {}", file_path.display())
             })?;
@@ -825,8 +823,13 @@ pub fn generate_c_from_package_xml(config: GenerateCStandaloneConfig) -> Result<
         }
 
         // Generate umbrella header
-        let umbrella =
-            generate_umbrella_header(pkg_name, &msg_headers, &srv_headers, &action_headers, &pkg_deps);
+        let umbrella = generate_umbrella_header(
+            pkg_name,
+            &msg_headers,
+            &srv_headers,
+            &action_headers,
+            &pkg_deps,
+        );
         std::fs::write(pkg_output.join(format!("{}.h", pkg_name)), umbrella)?;
 
         println!(
@@ -838,10 +841,7 @@ pub fn generate_c_from_package_xml(config: GenerateCStandaloneConfig) -> Result<
         );
     }
 
-    println!(
-        "✓ Generated C bindings in {}",
-        config.output_dir.display()
-    );
+    println!("✓ Generated C bindings in {}", config.output_dir.display());
 
     Ok(())
 }

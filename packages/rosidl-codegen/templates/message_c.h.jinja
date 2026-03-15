@@ -16,8 +16,8 @@
 extern "C" {
 #endif
 
-{%- for dep in dependencies %}
-#include "{{ dep }}_msg.h"
+{%- for inc in type_includes %}
+#include "{{ inc }}"
 {%- endfor %}
 
 // Constants

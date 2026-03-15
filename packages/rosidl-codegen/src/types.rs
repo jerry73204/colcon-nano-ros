@@ -983,11 +983,11 @@ pub fn c_type_for_field(field_type: &FieldType, _current_package: Option<&str>) 
         FieldType::WString | FieldType::BoundedWString(_) => "char".to_string(),
 
         // Arrays use the element type as base type, with array suffix for the size
-        FieldType::Array { element_type, .. } => c_type_for_field(element_type, None),
+        FieldType::Array { element_type, .. } => c_type_for_field(element_type, _current_package),
 
         // Sequences use anonymous struct
         FieldType::Sequence { element_type } => {
-            let elem = c_type_for_field(element_type, None);
+            let elem = c_type_for_field(element_type, _current_package);
             let elem_suffix = c_array_suffix_for_field(element_type);
             format!(
                 "struct {{ uint32_t size; {} data{}[{}]; }}",
@@ -999,7 +999,7 @@ pub fn c_type_for_field(field_type: &FieldType, _current_package: Option<&str>) 
             element_type,
             max_size,
         } => {
-            let elem = c_type_for_field(element_type, None);
+            let elem = c_type_for_field(element_type, _current_package);
             let elem_suffix = c_array_suffix_for_field(element_type);
             format!(
                 "struct {{ uint32_t size; {} data{}[{}]; }}",
@@ -1008,15 +1008,12 @@ pub fn c_type_for_field(field_type: &FieldType, _current_package: Option<&str>) 
         }
 
         FieldType::NamespacedType { package, name } => {
-            if let Some(pkg) = package {
-                format!(
-                    "struct {}_msg_{}",
-                    to_c_package_name(pkg),
-                    to_snake_case(name)
-                )
-            } else {
-                format!("struct msg_{}", to_snake_case(name))
-            }
+            let pkg = package.as_deref().or(_current_package).unwrap_or("");
+            format!(
+                "struct {}_msg_{}",
+                to_c_package_name(pkg),
+                to_snake_case(name)
+            )
         }
     }
 }

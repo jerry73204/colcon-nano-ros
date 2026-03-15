@@ -323,6 +323,7 @@ pub struct MessageCHeaderTemplate<'a> {
     pub fields: Vec<CField>,
     pub constants: Vec<CConstant>,
     pub dependencies: Vec<String>,
+    pub type_includes: Vec<String>,
     pub has_fields: bool,
 }
 

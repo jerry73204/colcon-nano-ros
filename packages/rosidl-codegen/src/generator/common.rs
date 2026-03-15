@@ -251,24 +251,18 @@ pub(super) fn build_c_field(
             (String::new(), String::new())
         };
 
-    // Get nested struct names
+    // Get nested struct names (use current_package for intra-package references)
     let nested_struct_name = if let FieldType::NamespacedType { package, name } = field_type {
-        if let Some(pkg) = package {
-            format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
-        } else {
-            format!("msg_{}", to_snake_case(name))
-        }
+        let pkg = package.as_deref().or(current_package).unwrap_or("");
+        format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
     } else {
         String::new()
     };
 
     let element_struct_name =
         if let Some(FieldType::NamespacedType { package, name }) = element_type {
-            if let Some(pkg) = package {
-                format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
-            } else {
-                format!("msg_{}", to_snake_case(name))
-            }
+            let pkg = package.as_deref().or(current_package).unwrap_or("");
+            format!("{}_msg_{}", to_c_package_name(pkg), to_snake_case(name))
         } else {
             String::new()
         };
