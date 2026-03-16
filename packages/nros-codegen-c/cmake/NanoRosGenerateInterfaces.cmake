@@ -4,53 +4,28 @@ NanoRosGenerateInterfaces
 
 Generate C or C++ bindings for ROS 2 interface files (.msg, .srv, .action).
 
-This module is included by ``NanoRosConfig.cmake`` and provides the
-``nano_ros_generate_interfaces()`` function.  It also locates the
-``nros-codegen`` tool from the install prefix.
+This module provides two functions:
 
-Usage mirrors ``rosidl_generate_interfaces()`` from standard ROS 2:
-interface files are passed as positional arguments, resolved relative
-to ``CMAKE_CURRENT_SOURCE_DIR``.  When a file is not found locally,
-it is searched in the ament index (``AMENT_PREFIX_PATH``) and then in
-bundled interfaces shipped with nano-ros.
+``nros_find_interfaces()``
+  High-level: reads ``package.xml``, resolves transitive interface
+  dependencies via AMENT index (with bundled fallback), and generates
+  bindings for all required packages.
 
-.. code-block:: cmake
+  .. code-block:: cmake
 
-  nano_ros_generate_interfaces(<target>
-    [<interface_files>...]
-    [LANGUAGE C|CPP]
-    [DEPENDENCIES <packages>...]
-    [SKIP_INSTALL]
-  )
+    nros_find_interfaces([LANGUAGE C|CPP] [SKIP_INSTALL])
 
-Arguments:
-  ``<target>``
-    Package name for the generated bindings.  Creates a
-    ``<target>__nano_ros_c`` (C) or ``<target>__nano_ros_cpp`` (C++)
-    library target.
-  ``<interface_files>``
-    Optional.  Relative paths to .msg, .srv, or .action files
-    (e.g., ``msg/Int32.msg``, ``srv/AddTwoInts.srv``).
-    Each file is resolved in order:
+``nros_generate_interfaces()``
+  Low-level: generates bindings for a single package.
 
-    1. ``${CMAKE_CURRENT_SOURCE_DIR}/<file>``  (local)
-    2. ``${prefix}/share/<target>/<file>``      (ament index)
-    3. ``${_NANO_ROS_PREFIX}/share/nano-ros/interfaces/<target>/<file>``
-       (bundled)
+  .. code-block:: cmake
 
-    If no files are specified, auto-discovers from:
-
-    1. Local ``msg/``, ``srv/``, ``action/`` directories
-    2. Ament index (``AMENT_PREFIX_PATH``)
-    3. Bundled interfaces shipped with nano-ros
-  ``LANGUAGE``
-    Target language: ``C`` (default) or ``CPP``.
-    C mode generates ``.h`` + ``.c`` files.
-    CPP mode generates ``.hpp`` headers + ``.rs`` Rust FFI glue.
-  ``DEPENDENCIES``
-    List of interface packages this package depends on.
-  ``SKIP_INSTALL``
-    Skip installing generated files.
+    nros_generate_interfaces(<target>
+      [<interface_files>...]
+      [LANGUAGE C|CPP]
+      [DEPENDENCIES <packages>...]
+      [SKIP_INSTALL]
+    )
 
 Prerequisites:
   Run ``just install-local`` (or ``cmake --build && cmake --install``)
@@ -91,9 +66,9 @@ if(NOT DEFINED CACHE{_NANO_ROS_CODEGEN_TOOL})
 endif()
 
 # =========================================================================
-# _nano_ros_resolve_interface(<target> <relpath> <out_var>)
+# _nros_resolve_interface(<target> <relpath> <out_var>)
 # =========================================================================
-function(_nano_ros_resolve_interface target relpath out_var)
+function(_nros_resolve_interface target relpath out_var)
   set(${out_var} "NOTFOUND" PARENT_SCOPE)
 
   # 1. Local file
@@ -124,10 +99,10 @@ function(_nano_ros_resolve_interface target relpath out_var)
 endfunction()
 
 # =========================================================================
-# nano_ros_generate_interfaces(<target> <files>...
+# nros_generate_interfaces(<target> <files>...
 #     [DEPENDENCIES <deps>...] [SKIP_INSTALL])
 # =========================================================================
-function(nano_ros_generate_interfaces target)
+function(nros_generate_interfaces target)
   cmake_parse_arguments(_ARG
     "SKIP_INSTALL"
     "ROS_EDITION;LANGUAGE"
@@ -150,10 +125,10 @@ function(nano_ros_generate_interfaces target)
   if(_ARG_UNPARSED_ARGUMENTS)
     # Explicit files: resolve each via local + ament + bundled
     foreach(_relpath ${_ARG_UNPARSED_ARGUMENTS})
-      _nano_ros_resolve_interface("${target}" "${_relpath}" _abs_path)
+      _nros_resolve_interface("${target}" "${_relpath}" _abs_path)
       if(_abs_path STREQUAL "NOTFOUND")
         message(FATAL_ERROR
-          "nano_ros_generate_interfaces(): cannot find '${_relpath}' for "
+          "nros_generate_interfaces(): cannot find '${_relpath}' for "
           "package '${target}'.\n"
           "  Searched:\n"
           "    ${CMAKE_CURRENT_SOURCE_DIR}/${_relpath}\n"
@@ -192,7 +167,7 @@ function(nano_ros_generate_interfaces target)
 
     if(NOT _interface_files)
       message(FATAL_ERROR
-        "nano_ros_generate_interfaces(): no interface files found for '${target}'.\n"
+        "nros_generate_interfaces(): no interface files found for '${target}'.\n"
         "  Searched:\n"
         "    ${CMAKE_CURRENT_SOURCE_DIR}/{msg,srv,action}/\n"
         "    AMENT_PREFIX_PATH/share/${target}/{msg,srv,action}/\n"
@@ -356,20 +331,54 @@ function(nano_ros_generate_interfaces target)
 
       file(MAKE_DIRECTORY "${_ffi_crate_src}")
 
-      # Generate Cargo.toml and lib.rs from templates
+      # Generate Cargo.toml from template
       set(FFI_TARGET "${target}")
       set(SERDES_DIR "${_serdes_dir}")
-      set(GENERATED_MOD_RS "${_output_dir}/mod.rs")
       configure_file(
         "${_NANO_ROS_CMAKE_DIR}/cpp_ffi_Cargo.toml.in"
         "${_ffi_crate_dir}/Cargo.toml"
         @ONLY
       )
-      configure_file(
-        "${_NANO_ROS_CMAKE_DIR}/cpp_ffi_lib.rs.in"
-        "${_ffi_crate_src}/lib.rs"
-        @ONLY
-      )
+
+      # Generate lib.rs with include!() for cross-package FFI references.
+      # Using include!() instead of mod keeps all types in the same scope,
+      # so cross-package type references (e.g. builtin_interfaces_msg_time_t
+      # used in std_msgs) resolve correctly.
+      set(_lib_rs_content "")
+      string(APPEND _lib_rs_content "// Auto-generated — do not edit\n")
+      string(APPEND _lib_rs_content "#![no_std]\n")
+      string(APPEND _lib_rs_content "#![allow(non_camel_case_types)]\n\n")
+      string(APPEND _lib_rs_content "#[panic_handler]\n")
+      string(APPEND _lib_rs_content "fn panic(_info: &core::panic::PanicInfo) -> ! {\n")
+      string(APPEND _lib_rs_content "    loop {}\n")
+      string(APPEND _lib_rs_content "}\n\n")
+      string(APPEND _lib_rs_content "use nros_serdes::{CdrWriter, CdrReader, SerError, DeserError};\n\n")
+      string(APPEND _lib_rs_content "unsafe extern \"C\" {\n")
+      string(APPEND _lib_rs_content "    fn nros_cpp_publish_raw(handle: *mut core::ffi::c_void, data: *const u8, len: usize) -> i32\;\n")
+      string(APPEND _lib_rs_content "}\n\n")
+
+      # include!() dependency FFI .rs files (so their types are in scope)
+      foreach(_dep ${_ARG_DEPENDENCIES})
+        if(DEFINED ${_dep}_GENERATED_RS_FILES)
+          foreach(_rs_file ${${_dep}_GENERATED_RS_FILES})
+            # Skip mod.rs — we use include!() instead
+            get_filename_component(_rs_name "${_rs_file}" NAME)
+            if(NOT _rs_name STREQUAL "mod.rs")
+              string(APPEND _lib_rs_content "include!(\"${_rs_file}\")\;\n")
+            endif()
+          endforeach()
+        endif()
+      endforeach()
+
+      # include!() own FFI .rs files
+      foreach(_rs_file ${_generated_rs_files})
+        get_filename_component(_rs_name "${_rs_file}" NAME)
+        if(NOT _rs_name STREQUAL "mod.rs")
+          string(APPEND _lib_rs_content "include!(\"${_rs_file}\")\;\n")
+        endif()
+      endforeach()
+
+      file(WRITE "${_ffi_crate_src}/lib.rs" "${_lib_rs_content}")
 
       # For Tier 3 targets (e.g. armv7a-nuttx-eabi), generate a .cargo/config.toml
       # with build-std=core and use nightly toolchain.
@@ -400,6 +409,12 @@ function(nano_ros_generate_interfaces target)
 
       add_custom_target(${_lib_target}_ffi DEPENDS "${_ffi_lib}")
       add_dependencies(${_lib_target}_ffi ${_lib_target}_gen)
+      # Ensure dependency codegen targets run before our FFI build
+      foreach(_dep ${_ARG_DEPENDENCIES})
+        if(TARGET ${_dep}__nano_ros_cpp_gen)
+          add_dependencies(${_lib_target}_ffi ${_dep}__nano_ros_cpp_gen)
+        endif()
+      endforeach()
       add_dependencies(${_lib_target} ${_lib_target}_ffi)
 
       # Import the built staticlib
@@ -507,4 +522,87 @@ function(nano_ros_generate_interfaces target)
   set(${target}_GENERATED_HEADERS "${_generated_headers}" PARENT_SCOPE)
   set(${target}_GENERATED_SOURCES "${_generated_sources}" PARENT_SCOPE)
   set(${target}_GENERATED_RS_FILES "${_generated_rs_files}" PARENT_SCOPE)
+endfunction()
+
+
+# =========================================================================
+# nros_find_interfaces()
+#
+# High-level function that reads package.xml from the current source
+# directory, resolves transitive interface dependencies via AMENT index
+# (with bundled fallback), and generates bindings for all required
+# packages in topological order.
+#
+# Usage:
+#   nros_find_interfaces([LANGUAGE CPP] [SKIP_INSTALL])
+# =========================================================================
+function(nros_find_interfaces)
+  cmake_parse_arguments(_ARG
+    "SKIP_INSTALL"
+    "PACKAGE_XML;LANGUAGE;ROS_EDITION"
+    ""
+    ${ARGN}
+  )
+
+  if(NOT DEFINED _ARG_PACKAGE_XML OR _ARG_PACKAGE_XML STREQUAL "")
+    set(_ARG_PACKAGE_XML "${CMAKE_CURRENT_SOURCE_DIR}/package.xml")
+  endif()
+
+  if(NOT EXISTS "${_ARG_PACKAGE_XML}")
+    message(FATAL_ERROR
+      "nros_find_interfaces: package.xml not found at ${_ARG_PACKAGE_XML}")
+  endif()
+
+  if(NOT DEFINED _ARG_LANGUAGE OR _ARG_LANGUAGE STREQUAL "")
+    set(_ARG_LANGUAGE "CPP")
+  endif()
+
+  if(NOT DEFINED _ARG_ROS_EDITION OR _ARG_ROS_EDITION STREQUAL "")
+    set(_ARG_ROS_EDITION "humble")
+  endif()
+
+  # 1. Call resolve-deps at configure time
+  set(_resolve_output "${CMAKE_CURRENT_BINARY_DIR}/_nros_resolved_deps.cmake")
+  execute_process(
+    COMMAND "${_NANO_ROS_CODEGEN_TOOL}" resolve-deps
+            --package-xml "${_ARG_PACKAGE_XML}"
+            --output-cmake "${_resolve_output}"
+    RESULT_VARIABLE _result
+    ERROR_VARIABLE _stderr
+  )
+  if(NOT _result EQUAL 0)
+    message(FATAL_ERROR
+      "nros-codegen resolve-deps failed (exit ${_result}):\n${_stderr}")
+  endif()
+
+  # 2. Include generated cmake with package lists
+  include("${_resolve_output}")
+
+  if(NOT _NROS_RESOLVED_PACKAGES)
+    message(WARNING "nros_find_interfaces: no interface packages resolved from ${_ARG_PACKAGE_XML}")
+    return()
+  endif()
+
+  # 3. Generate interfaces for each resolved package in topo order
+  foreach(_pkg ${_NROS_RESOLVED_PACKAGES})
+    set(_skip "")
+    if(_ARG_SKIP_INSTALL)
+      set(_skip "SKIP_INSTALL")
+    endif()
+
+    nros_generate_interfaces(${_pkg}
+      ${_NROS_RESOLVED_${_pkg}_FILES}
+      DEPENDENCIES ${_NROS_RESOLVED_${_pkg}_DEPS}
+      LANGUAGE ${_ARG_LANGUAGE}
+      ROS_EDITION ${_ARG_ROS_EDITION}
+      ${_skip}
+    )
+
+    # Re-export variables from nros_generate_interfaces to caller's scope
+    set(${_pkg}_INCLUDE_DIRS "${${_pkg}_INCLUDE_DIRS}" PARENT_SCOPE)
+    set(${_pkg}_LIBRARIES "${${_pkg}_LIBRARIES}" PARENT_SCOPE)
+    set(${_pkg}_GENERATED_HEADERS "${${_pkg}_GENERATED_HEADERS}" PARENT_SCOPE)
+    set(${_pkg}_GENERATED_SOURCES "${${_pkg}_GENERATED_SOURCES}" PARENT_SCOPE)
+    set(${_pkg}_GENERATED_RS_FILES "${${_pkg}_GENERATED_RS_FILES}" PARENT_SCOPE)
+  endforeach()
 endfunction()

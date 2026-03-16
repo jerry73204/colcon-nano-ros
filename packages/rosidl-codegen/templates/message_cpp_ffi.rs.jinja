@@ -5,12 +5,6 @@
 //
 // no_std, no alloc — stack-only buffers
 
-use nros_serdes::{CdrWriter, CdrReader, SerError, DeserError};
-
-unsafe extern "C" {
-    fn nros_cpp_publish_raw(handle: *mut core::ffi::c_void, data: *const u8, len: usize) -> i32;
-}
-
 {% for seq in sequence_structs %}
 /// Sequence helper for {{ seq.struct_name }}
 #[repr(C)]
