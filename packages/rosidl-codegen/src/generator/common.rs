@@ -272,6 +272,9 @@ pub(super) fn build_c_field(
             String::new()
         };
 
+    let is_unbounded_string = matches!(field_type, FieldType::String | FieldType::WString);
+    let is_unbounded_sequence = matches!(field_type, FieldType::Sequence { .. });
+
     CField {
         name: escaped_name,
         c_type,
@@ -291,6 +294,8 @@ pub(super) fn build_c_field(
         is_nested,
         is_primitive_element,
         is_string_element,
+        is_unbounded_string,
+        is_unbounded_sequence,
     }
 }
 

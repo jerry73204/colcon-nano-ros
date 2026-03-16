@@ -42,6 +42,9 @@ int32_t {{ struct_name }}_serialize(const {{ struct_name }}* msg, uint8_t* buffe
 {%- for field in fields %}
 {%- if field.is_primitive %}
     if (nros_cdr_{{ field.cdr_write_method }}(&ptr, end, origin, msg->{{ field.name }}) < 0) return -1;
+{%- else if field.is_unbounded_string %}
+    // Unbounded string: serialize from pointer+length
+    if (nros_cdr_write_string_n(&ptr, end, origin, msg->{{ field.name }}.data, msg->{{ field.name }}.size) < 0) return -1;
 {%- else if field.is_string %}
     if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}) < 0) return -1;
 {%- else if field.is_array %}
@@ -55,6 +58,12 @@ int32_t {{ struct_name }}_serialize(const {{ struct_name }}* msg, uint8_t* buffe
         if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr, &nested_len) < 0) return -1;
         ptr += nested_len - 4; // Subtract header (nested messages don't have headers)
 {%- endif %}
+    }
+{%- else if field.is_unbounded_sequence && field.is_primitive_element %}
+    // Unbounded primitive sequence: serialize from pointer+length
+    if (nros_cdr_write_u32(&ptr, end, origin, (uint32_t)msg->{{ field.name }}.size) < 0) return -1;
+    for (size_t i = 0; i < msg->{{ field.name }}.size; ++i) {
+        if (nros_cdr_{{ field.element_cdr_write_method }}(&ptr, end, origin, msg->{{ field.name }}.data[i]) < 0) return -1;
     }
 {%- else if field.is_sequence %}
     if (nros_cdr_write_u32(&ptr, end, origin, msg->{{ field.name }}.size) < 0) return -1;
@@ -103,6 +112,16 @@ int32_t {{ struct_name }}_deserialize({{ struct_name }}* msg, const uint8_t* buf
 {%- for field in fields %}
 {%- if field.is_primitive %}
     if (nros_cdr_{{ field.cdr_read_method }}(&ptr, end, origin, &msg->{{ field.name }}) < 0) return -1;
+{%- else if field.is_unbounded_string %}
+    // Unbounded string: set pointer into CDR buffer (borrowed, zero-copy)
+    {
+        uint32_t str_len;
+        if (nros_cdr_read_u32(&ptr, end, origin, &str_len) < 0) return -1;
+        if (str_len == 0 || ptr + str_len > end) return -1;
+        msg->{{ field.name }}.data = (const char*)ptr;
+        msg->{{ field.name }}.size = str_len - 1; // exclude null terminator
+        ptr += str_len;
+    }
 {%- else if field.is_string %}
     if (nros_cdr_read_string(&ptr, end, origin, msg->{{ field.name }}, sizeof(msg->{{ field.name }})) < 0) return -1;
 {%- else if field.is_array %}
@@ -116,6 +135,18 @@ int32_t {{ struct_name }}_deserialize({{ struct_name }}* msg, const uint8_t* buf
         // (nested messages use the same CDR format without header)
         // For simplicity, deserialize directly (implementation-dependent)
 {%- endif %}
+    }
+{%- else if field.is_unbounded_sequence && field.is_primitive_element %}
+    // Unbounded primitive sequence: set pointer into CDR buffer (borrowed, zero-copy)
+    {
+        uint32_t seq_len;
+        if (nros_cdr_read_u32(&ptr, end, origin, &seq_len) < 0) return -1;
+        // TODO: align ptr for element type if needed (CDR guarantees alignment)
+        msg->{{ field.name }}.data = (const void*)ptr;
+        msg->{{ field.name }}.size = seq_len;
+        // Advance ptr past the sequence data
+        ptr += seq_len * sizeof(msg->{{ field.name }}.data[0]);
+        if (ptr > end) return -1;
     }
 {%- else if field.is_sequence %}
     {
