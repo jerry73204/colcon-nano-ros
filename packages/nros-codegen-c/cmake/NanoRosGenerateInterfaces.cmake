@@ -371,10 +371,26 @@ function(nano_ros_generate_interfaces target)
         @ONLY
       )
 
+      # For Tier 3 targets (e.g. armv7a-nuttx-eabi), generate a .cargo/config.toml
+      # with build-std=core and use nightly toolchain.
+      set(_ffi_cargo_prefix "")
+      if(DEFINED Rust_CARGO_TARGET AND Rust_CARGO_TARGET MATCHES "nuttx")
+        file(MAKE_DIRECTORY "${_ffi_crate_dir}/.cargo")
+        file(WRITE "${_ffi_crate_dir}/.cargo/config.toml"
+          "[build]\ntarget = \"${Rust_CARGO_TARGET}\"\n\n"
+          "[unstable]\nbuild-std = [\"core\"]\n\n"
+          "[target.${Rust_CARGO_TARGET}]\nlinker = \"arm-none-eabi-gcc\"\n\n"
+          "[env]\nCC_armv7a_nuttx_eabi = \"arm-none-eabi-gcc\"\n"
+        )
+        set(_ffi_cargo_prefix "+nightly")
+        # With .cargo/config.toml, --target is set there; don't pass it again
+        set(_ffi_cargo_target_flag "")
+      endif()
+
       # Build the FFI staticlib after codegen runs
       add_custom_command(
         OUTPUT "${_ffi_lib}"
-        COMMAND cargo build --release --manifest-path "${_ffi_crate_dir}/Cargo.toml"
+        COMMAND cargo ${_ffi_cargo_prefix} build --release --manifest-path "${_ffi_crate_dir}/Cargo.toml"
                 --target-dir "${_ffi_target_dir}" ${_ffi_cargo_target_flag}
         DEPENDS ${_generated_rs_files} "${_ffi_crate_dir}/Cargo.toml" "${_ffi_crate_src}/lib.rs"
         WORKING_DIRECTORY "${_ffi_crate_dir}"
