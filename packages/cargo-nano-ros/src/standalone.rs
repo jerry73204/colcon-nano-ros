@@ -170,6 +170,7 @@ fn main() -> Result<()> {
                 force,
                 verbose: cli.verbose,
                 ros_edition,
+                renames: std::collections::HashMap::new(),
             })?;
         }
 

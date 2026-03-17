@@ -24,6 +24,8 @@
 //!     nano_ros_git: false,
 //!     force: false,
 //!     verbose: false,
+//!     ros_edition: "humble".to_string(),
+//!     renames: std::collections::HashMap::new(),
 //! };
 //!
 //! generate_from_package_xml(config).expect("Failed to generate bindings");
@@ -66,6 +68,12 @@ pub struct GenerateConfig {
     pub verbose: bool,
     /// ROS 2 edition for type hash format ("humble" or "iron")
     pub ros_edition: String,
+    /// Package name remap: `old_pkg_name → new_crate_name`.
+    ///
+    /// Renames the generated crate, its directory, cross-package `use` references,
+    /// and Cargo.toml dependency names. Used by nano-ros to generate
+    /// `nros-rcl-interfaces` instead of `rcl_interfaces`.
+    pub renames: std::collections::HashMap<String, String>,
 }
 
 /// Configuration for binding generation (single package)
@@ -221,6 +229,11 @@ pub fn generate_from_package_xml(config: GenerateConfig) -> Result<()> {
         generated_packages.push(pkg_name.clone());
     }
 
+    // Apply package renames (e.g., rcl_interfaces → nros-rcl-interfaces)
+    if !config.renames.is_empty() {
+        apply_package_renames(&config.output_dir, &config.renames, config.verbose)?;
+    }
+
     // Generate .cargo/config.toml if requested
     if config.generate_config {
         generate_cargo_config(
@@ -238,6 +251,125 @@ pub fn generate_from_package_xml(config: GenerateConfig) -> Result<()> {
         config.output_dir.display()
     );
 
+    Ok(())
+}
+
+/// Apply package renames to generated output.
+///
+/// For each `old_name → new_name` mapping:
+/// 1. Rename the output directory (`old_name/` → `new_name/`)
+/// 2. Update `[package] name` in Cargo.toml
+/// 3. Update cross-package dependency names in Cargo.toml
+/// 4. Update `use old_name::` references in Rust source files
+/// 5. Update `std` feature propagation in Cargo.toml
+fn apply_package_renames(
+    output_dir: &Path,
+    renames: &std::collections::HashMap<String, String>,
+    verbose: bool,
+) -> Result<()> {
+    use std::fs;
+
+    // Build reverse lookup: old_crate_ident → new_crate_ident (for `use` statements)
+    let ident_renames: std::collections::HashMap<String, String> = renames
+        .iter()
+        .map(|(old, new)| (old.replace('-', "_"), new.replace('-', "_")))
+        .collect();
+
+    // Phase 1: Rename directories
+    for (old_name, new_name) in renames {
+        let old_dir = output_dir.join(old_name);
+        let new_dir = output_dir.join(new_name);
+        if old_dir.exists() && old_dir != new_dir {
+            if new_dir.exists() {
+                fs::remove_dir_all(&new_dir)?;
+            }
+            fs::rename(&old_dir, &new_dir)?;
+            if verbose {
+                println!("  Renamed {} → {}", old_name, new_name);
+            }
+        }
+    }
+
+    // Phase 2: Fix Cargo.toml files and Rust source in all renamed packages
+    for new_name in renames.values() {
+        let pkg_dir = output_dir.join(new_name);
+        if !pkg_dir.exists() {
+            continue;
+        }
+
+        // Fix Cargo.toml
+        let cargo_path = pkg_dir.join("Cargo.toml");
+        if cargo_path.exists() {
+            let mut content = fs::read_to_string(&cargo_path)?;
+
+            // Replace package name
+            for (old_name, new_name) in renames {
+                // [package] name
+                content = content.replace(
+                    &format!("name = \"{}\"", old_name),
+                    &format!("name = \"{}\"", new_name),
+                );
+                // [dependencies] and [features] references
+                content = content.replace(
+                    &format!("{} = {{ path", old_name),
+                    &format!("{} = {{ path", new_name),
+                );
+                content = content.replace(
+                    &format!("\"../{}\",", old_name),
+                    &format!("\"../{}\",", new_name),
+                );
+                content = content.replace(
+                    &format!("\"../{}\"", old_name),
+                    &format!("\"../{}\"", new_name),
+                );
+                // std feature propagation
+                content =
+                    content.replace(&format!("{}/std", old_name), &format!("{}/std", new_name));
+            }
+
+            fs::write(&cargo_path, content)?;
+        }
+
+        // Fix Rust source files: replace `old_ident::` with `new_ident::`
+        let src_dir = pkg_dir.join("src");
+        if src_dir.exists() {
+            fix_rust_idents_recursive(&src_dir, &ident_renames)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Recursively fix Rust identifier references in .rs files.
+fn fix_rust_idents_recursive(
+    dir: &Path,
+    ident_renames: &std::collections::HashMap<String, String>,
+) -> Result<()> {
+    use std::fs;
+
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            fix_rust_idents_recursive(&path, ident_renames)?;
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+            let mut content = fs::read_to_string(&path)?;
+            let mut changed = false;
+
+            for (old_ident, new_ident) in ident_renames {
+                let old_ref = format!("{}::", old_ident);
+                let new_ref = format!("{}::", new_ident);
+                if content.contains(&old_ref) {
+                    content = content.replace(&old_ref, &new_ref);
+                    changed = true;
+                }
+            }
+
+            if changed {
+                fs::write(&path, content)?;
+            }
+        }
+    }
     Ok(())
 }
 

@@ -63,6 +63,12 @@ enum NanoRosCommand {
         /// ROS 2 edition for type hash format (humble or iron)
         #[arg(long, default_value = "humble")]
         ros_edition: String,
+
+        /// Rename a generated package: --rename old_pkg=new_crate_name
+        /// Can be specified multiple times. Affects crate name, directory name,
+        /// cross-package use statements, and Cargo.toml dependencies.
+        #[arg(long, value_parser = parse_rename)]
+        rename: Vec<(String, String)>,
     },
 
     /// (Hidden) Backward-compatible alias for generate-rust
@@ -82,6 +88,8 @@ enum NanoRosCommand {
         force: bool,
         #[arg(long, default_value = "humble")]
         ros_edition: String,
+        #[arg(long, value_parser = parse_rename)]
+        rename: Vec<(String, String)>,
     },
 
     /// Generate C bindings for interface files (.msg, .srv, .action)
@@ -131,6 +139,15 @@ enum NanoRosCommand {
     },
 }
 
+/// Parse `--rename old=new` argument
+fn parse_rename(s: &str) -> Result<(String, String), String> {
+    let parts: Vec<&str> = s.splitn(2, '=').collect();
+    if parts.len() != 2 {
+        return Err(format!("expected format: old_pkg=new_crate_name, got: {s}"));
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
 fn run_generate(cfg: GenerateConfig) -> Result<()> {
     cargo_nano_ros::generate_from_package_xml(cfg)
 }
@@ -147,6 +164,7 @@ fn main() -> Result<()> {
             nano_ros_git,
             force,
             ros_edition,
+            rename,
         }
         | NanoRosCommand::Generate {
             manifest_path,
@@ -156,6 +174,7 @@ fn main() -> Result<()> {
             nano_ros_git,
             force,
             ros_edition,
+            rename,
         } => {
             run_generate(GenerateConfig {
                 manifest_path,
@@ -166,6 +185,7 @@ fn main() -> Result<()> {
                 force,
                 verbose: args.verbose,
                 ros_edition,
+                renames: rename.into_iter().collect(),
             })?;
         }
 
