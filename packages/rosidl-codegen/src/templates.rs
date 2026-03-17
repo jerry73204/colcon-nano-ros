@@ -184,6 +184,9 @@ pub struct NrosField {
     pub is_unbounded_string: bool,
     /// True for unbounded sequences (FieldType::Sequence) — will use `&'a [T]`
     pub is_unbounded_sequence: bool,
+    /// Owned Rust type for `*Owned` struct (e.g., `heapless::String<256>` when
+    /// `rust_type` is `&'a str`). Empty if same as `rust_type` (fixed-size fields).
+    pub owned_type: String,
 }
 
 #[derive(Template)]

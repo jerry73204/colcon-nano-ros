@@ -273,3 +273,188 @@ impl{% if needs_lifetime %}<'a>{% endif %} RosMessage for {{ message_name }}{% i
     const TYPE_NAME: &'static str = "{{ package_name }}::msg::dds_::{{ message_name }}_";
     const TYPE_HASH: &'static str = "{{ type_hash }}";
 }
+{%- if needs_lifetime %}
+
+// ============================================================================
+// Owned variant — for storage, construction, parameter services
+// ============================================================================
+
+/// Owned variant of [`{{ message_name }}`] with heap-free fixed-capacity fields.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct {{ message_name }}Owned {
+{%- for field in fields %}
+{%- if field.owned_type != "" %}
+    pub {{ field.name }}: {{ field.owned_type }},
+{%- else %}
+    pub {{ field.name }}: {{ field.rust_type }},
+{%- endif %}
+{%- endfor %}
+}
+
+impl Serialize for {{ message_name }}Owned {
+{%- if has_fields %}
+    fn serialize(&self, writer: &mut CdrWriter) -> Result<(), SerError> {
+        self.as_ref().serialize(writer)
+    }
+{%- else %}
+    fn serialize(&self, _writer: &mut CdrWriter) -> Result<(), SerError> {
+        Ok(())
+    }
+{%- endif %}
+}
+
+impl Deserialize for {{ message_name }}Owned {
+{%- if has_fields %}
+    fn deserialize(reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {
+{%- for field in fields %}
+{%- if field.is_primitive %}
+            {{ field.name }}: reader.read_{{ field.primitive_method }}()?,
+{%- else if field.is_unbounded_string %}
+            {{ field.name }}: {
+                let s = reader.read_string()?;
+{%- if inline_mode %}
+                nros_core::heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+{%- else %}
+                heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+{%- endif %}
+            },
+{%- else if field.is_string %}
+            {{ field.name }}: {
+                let s = reader.read_string()?;
+{%- if inline_mode %}
+                nros_core::heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+{%- else %}
+                heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?
+{%- endif %}
+            },
+{%- else if field.is_array %}
+            {{ field.name }}: {
+{%- if field.is_large_array %}
+                let mut arr = [Default::default(); {{ field.array_size }}];
+{%- else %}
+                let mut arr = Default::default();
+{%- endif %}
+                for i in 0..{{ field.array_size }} {
+{%- if field.is_primitive_element %}
+                    arr[i] = reader.read_{{ field.element_primitive_method }}()?;
+{%- else %}
+                    arr[i] = Deserialize::deserialize(reader)?;
+{%- endif %}
+                }
+                arr
+            },
+{%- else if field.is_unbounded_sequence %}
+            {{ field.name }}: {
+                let len = reader.read_u32()? as usize;
+{%- if inline_mode %}
+                let mut vec = nros_core::heapless::Vec::new();
+{%- else %}
+                let mut vec = heapless::Vec::new();
+{%- endif %}
+                for _ in 0..len {
+{%- if field.is_primitive_element %}
+                    vec.push(reader.read_{{ field.element_primitive_method }}()?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+{%- if inline_mode %}
+                    vec.push(nros_core::heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    vec.push(heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+{%- else %}
+                    vec.push(Deserialize::deserialize(reader)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+                }
+                vec
+            },
+{%- else if field.is_sequence %}
+            {{ field.name }}: {
+                let len = reader.read_u32()? as usize;
+{%- if inline_mode %}
+                let mut vec = nros_core::heapless::Vec::new();
+{%- else %}
+                let mut vec = heapless::Vec::new();
+{%- endif %}
+                for _ in 0..len {
+{%- if field.is_primitive_element %}
+                    vec.push(reader.read_{{ field.element_primitive_method }}()?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else if field.is_string_element %}
+                    let s = reader.read_string()?;
+{%- if inline_mode %}
+                    vec.push(nros_core::heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- else %}
+                    vec.push(heapless::String::try_from(s).map_err(|_| DeserError::CapacityExceeded)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+{%- else %}
+                    vec.push(Deserialize::deserialize(reader)?).map_err(|_| DeserError::CapacityExceeded)?;
+{%- endif %}
+                }
+                vec
+            },
+{%- else %}
+            {{ field.name }}: Deserialize::deserialize(reader)?,
+{%- endif %}
+{%- endfor %}
+        })
+    }
+{%- else %}
+    fn deserialize(_reader: &mut CdrReader) -> Result<Self, DeserError> {
+        Ok(Self {})
+    }
+{%- endif %}
+}
+
+impl RosMessage for {{ message_name }}Owned {
+    const TYPE_NAME: &'static str = "{{ package_name }}::msg::dds_::{{ message_name }}_";
+    const TYPE_HASH: &'static str = "{{ type_hash }}";
+}
+
+// ── Conversions ──
+
+impl {{ message_name }}<'_> {
+    /// Create an owned copy of this borrowed message.
+    pub fn to_owned(&self) -> {{ message_name }}Owned {
+        {{ message_name }}Owned {
+{%- for field in fields %}
+{%- if field.is_unbounded_string %}
+{%- if inline_mode %}
+            {{ field.name }}: nros_core::heapless::String::try_from(self.{{ field.name }}).unwrap_or_default(),
+{%- else %}
+            {{ field.name }}: heapless::String::try_from(self.{{ field.name }}).unwrap_or_default(),
+{%- endif %}
+{%- else if field.is_unbounded_sequence && field.is_primitive_element %}
+            {{ field.name }}: {
+{%- if inline_mode %}
+                let mut v = nros_core::heapless::Vec::new();
+{%- else %}
+                let mut v = heapless::Vec::new();
+{%- endif %}
+                let _ = v.extend_from_slice(self.{{ field.name }});
+                v
+            },
+{%- else %}
+            {{ field.name }}: self.{{ field.name }}.clone(),
+{%- endif %}
+{%- endfor %}
+        }
+    }
+}
+
+impl {{ message_name }}Owned {
+    /// Borrow this owned message as a [`{{ message_name }}`] reference.
+    pub fn as_ref(&self) -> {{ message_name }}<'_> {
+        {{ message_name }} {
+{%- for field in fields %}
+{%- if field.is_unbounded_string %}
+            {{ field.name }}: self.{{ field.name }}.as_str(),
+{%- else if field.is_unbounded_sequence %}
+            {{ field.name }}: self.{{ field.name }}.as_slice(),
+{%- else %}
+            {{ field.name }}: self.{{ field.name }}.clone(),
+{%- endif %}
+{%- endfor %}
+        }
+    }
+}
+{%- endif %}

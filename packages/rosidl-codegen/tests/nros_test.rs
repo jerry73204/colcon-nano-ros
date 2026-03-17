@@ -64,6 +64,10 @@ fn test_generate_std_msgs_string() {
     assert!(pkg.message_rs.contains("&'a str"));
     assert!(pkg.message_rs.contains("pub struct String<'a>"));
     assert!(pkg.message_rs.contains("writer.write_string(self.data)?"));
+    // Owned variant generated
+    assert!(pkg.message_rs.contains("pub struct StringOwned"));
+    assert!(pkg.message_rs.contains("fn to_owned(&self) -> StringOwned"));
+    assert!(pkg.message_rs.contains("fn as_ref(&self) -> String<'_>"));
 }
 
 #[test]

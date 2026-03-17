@@ -200,6 +200,15 @@ mod tests {
         // Borrowed types use deserialize_borrowed instead of Deserialize trait
         assert!(pkg.message_rs.contains("pub fn deserialize_borrowed"));
         assert!(pkg.message_rs.contains("impl<'a> RosMessage for Point<'a>"));
+
+        // Owned variant generated
+        assert!(pkg.message_rs.contains("pub struct PointOwned"));
+        assert!(pkg.message_rs.contains("heapless::String<256>"));
+        assert!(pkg.message_rs.contains("impl Deserialize for PointOwned"));
+        assert!(pkg.message_rs.contains("impl RosMessage for PointOwned"));
+        // Conversions
+        assert!(pkg.message_rs.contains("fn to_owned(&self) -> PointOwned"));
+        assert!(pkg.message_rs.contains("fn as_ref(&self) -> Point<'_>"));
     }
 
     #[test]
@@ -220,6 +229,9 @@ mod tests {
         let pkg = result.unwrap();
         // Unbounded sequence uses borrowed slice &'a [i32]
         assert!(pkg.message_rs.contains("&'a [i32]"));
+        // Owned variant has heapless::Vec
+        assert!(pkg.message_rs.contains("pub struct IntArrayOwned"));
+        assert!(pkg.message_rs.contains("heapless::Vec<i32, 64>"));
     }
 
     #[test]

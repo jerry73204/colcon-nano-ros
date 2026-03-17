@@ -1,9 +1,10 @@
 use crate::templates::{CField, CppFfiField, CppField, FieldKind, NrosField, SequenceStructDef};
 use crate::types::{
     C_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_SEQUENCE_CAPACITY, CPP_DEFAULT_STRING_CAPACITY,
-    NrosCodegenMode, c_array_suffix_for_field, c_cdr_read_method, c_cdr_write_method,
-    c_type_for_field, cpp_array_suffix_for_field, cpp_type_for_field, escape_keyword,
-    nros_type_for_field_with_mode, repr_c_type_for_field, to_c_package_name,
+    NROS_DEFAULT_SEQUENCE_CAPACITY, NROS_DEFAULT_STRING_CAPACITY, NrosCodegenMode,
+    c_array_suffix_for_field, c_cdr_read_method, c_cdr_write_method, c_type_for_field,
+    cpp_array_suffix_for_field, cpp_type_for_field, escape_keyword, nros_type_for_field_with_mode,
+    repr_c_type_for_field, to_c_package_name,
 };
 use crate::utils::to_snake_case;
 use rosidl_parser::FieldType;
@@ -155,6 +156,41 @@ pub(super) fn field_to_nros_field_with_mode(
     let is_unbounded_string = matches!(&field.field_type, FieldType::String | FieldType::WString);
     let is_unbounded_sequence = matches!(&field.field_type, FieldType::Sequence { .. });
 
+    // Compute owned type for *Owned struct (only differs for unbounded fields)
+    let is_inline = mode == NrosCodegenMode::Inline;
+    let owned_type = if is_unbounded_string {
+        if is_inline {
+            format!(
+                "nros_core::heapless::String<{}>",
+                NROS_DEFAULT_STRING_CAPACITY
+            )
+        } else {
+            format!("heapless::String<{}>", NROS_DEFAULT_STRING_CAPACITY)
+        }
+    } else if is_unbounded_sequence {
+        let elem = nros_type_for_field_with_mode(
+            match &field.field_type {
+                FieldType::Sequence { element_type } => element_type,
+                _ => unreachable!(),
+            },
+            Some(package_name),
+            mode,
+        );
+        if is_inline {
+            format!(
+                "nros_core::heapless::Vec<{}, {}>",
+                elem, NROS_DEFAULT_SEQUENCE_CAPACITY
+            )
+        } else {
+            format!(
+                "heapless::Vec<{}, {}>",
+                elem, NROS_DEFAULT_SEQUENCE_CAPACITY
+            )
+        }
+    } else {
+        String::new() // same as rust_type — no owned variant needed
+    };
+
     NrosField {
         name,
         rust_type,
@@ -171,6 +207,7 @@ pub(super) fn field_to_nros_field_with_mode(
         is_large_array: array_size > 32,
         is_unbounded_string,
         is_unbounded_sequence,
+        owned_type,
     }
 }
 
