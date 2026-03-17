@@ -549,7 +549,38 @@ pub fn nros_type_for_field_with_mode(
 
         FieldType::Sequence { element_type } => {
             let elem = nros_type_for_field_with_mode(element_type, current_package, mode);
-            format!("&'a [{}]", elem)
+            // Only u8/i8/bool/string sequences and nested type sequences use &'a [T] (zero-copy).
+            // Multi-byte primitive sequences (i32, f64, etc.) use heapless::Vec
+            // because zero-copy requires alignment guarantees we can't provide.
+            let is_byte = matches!(
+                element_type.as_ref(),
+                FieldType::Primitive(rosidl_parser::PrimitiveType::UInt8)
+                    | FieldType::Primitive(rosidl_parser::PrimitiveType::Int8)
+                    | FieldType::Primitive(rosidl_parser::PrimitiveType::Byte)
+                    | FieldType::Primitive(rosidl_parser::PrimitiveType::Char)
+                    | FieldType::Primitive(rosidl_parser::PrimitiveType::Bool)
+            );
+            let is_string = matches!(
+                element_type.as_ref(),
+                FieldType::String | FieldType::WString
+            );
+            let is_nested = matches!(element_type.as_ref(), FieldType::NamespacedType { .. });
+            if is_byte || is_string || is_nested {
+                format!("&'a [{}]", elem)
+            } else {
+                // Multi-byte primitives: use heapless::Vec (owned, copied during deserialize)
+                if inline {
+                    format!(
+                        "nros_core::heapless::Vec<{}, {}>",
+                        elem, NROS_DEFAULT_SEQUENCE_CAPACITY
+                    )
+                } else {
+                    format!(
+                        "heapless::Vec<{}, {}>",
+                        elem, NROS_DEFAULT_SEQUENCE_CAPACITY
+                    )
+                }
+            }
         }
 
         FieldType::BoundedSequence {
@@ -597,6 +628,234 @@ pub fn nros_type_for_field_with_mode(
             }
         }
     }
+}
+
+/// Check if a message has any unbounded fields (directly — not transitively).
+///
+/// Used by the pre-scan phase to build the initial "needs lifetime" set.
+pub fn message_has_unbounded_fields(message: &rosidl_parser::Message) -> bool {
+    message.fields.iter().any(|f| {
+        matches!(
+            &f.field_type,
+            FieldType::String | FieldType::WString | FieldType::Sequence { .. }
+        )
+    })
+}
+
+/// Compute the transitive set of type names that need lifetime parameters.
+///
+/// Takes a map of `(package, message_name) -> Message` for all messages
+/// across all packages. Returns a set of qualified names like
+/// `"rcl_interfaces::ParameterValue"` or `"::Parameter"` (same-package).
+///
+/// Algorithm:
+/// 1. Seed: all messages with direct unbounded fields
+/// 2. Propagate: if a message references a type in the set, add it too
+/// 3. Repeat until convergence
+pub fn compute_lifetime_types(
+    messages: &[(&str, &str, &rosidl_parser::Message)], // (package, name, parsed)
+) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+
+    let mut needs_lifetime: HashSet<String> = HashSet::new();
+
+    // Phase 1: seed with messages that have direct unbounded fields
+    for &(pkg, name, msg) in messages {
+        if message_has_unbounded_fields(msg) {
+            needs_lifetime.insert(format!("{}::{}", pkg, name));
+        }
+    }
+
+    // Phase 2: propagate transitively until convergence
+    loop {
+        let mut changed = false;
+
+        for &(pkg, name, msg) in messages {
+            let key = format!("{}::{}", pkg, name);
+            if needs_lifetime.contains(&key) {
+                continue; // already in set
+            }
+
+            // Check if any nested field references a type in the set
+            let references_lifetime_type = msg.fields.iter().any(|f| {
+                if let FieldType::NamespacedType {
+                    package: ref nested_pkg,
+                    name: ref nested_name,
+                } = f.field_type
+                {
+                    let nested_key = if let Some(np) = nested_pkg {
+                        format!("{}::{}", np, nested_name)
+                    } else {
+                        // Same-package reference
+                        format!("{}::{}", pkg, nested_name)
+                    };
+                    needs_lifetime.contains(&nested_key)
+                } else if let FieldType::Sequence { element_type }
+                | FieldType::BoundedSequence { element_type, .. }
+                | FieldType::Array { element_type, .. } = &f.field_type
+                {
+                    if let FieldType::NamespacedType {
+                        package: nested_pkg,
+                        name: nested_name,
+                    } = element_type.as_ref()
+                    {
+                        let nested_key = if let Some(np) = nested_pkg {
+                            format!("{}::{}", np, nested_name)
+                        } else {
+                            format!("{}::{}", pkg, nested_name)
+                        };
+                        needs_lifetime.contains(&nested_key)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            });
+
+            if references_lifetime_type {
+                needs_lifetime.insert(key);
+                changed = true;
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
+
+    needs_lifetime
+}
+
+/// Get the Rust type string for a field, adding `<'a>` to nested types that need lifetimes.
+///
+/// `lifetime_types` is the set of qualified type names (e.g., `"rcl_interfaces::ParameterValue"`)
+/// that require lifetime parameters.
+pub fn nros_type_for_field_with_lifetime(
+    field_type: &FieldType,
+    current_package: Option<&str>,
+    mode: NrosCodegenMode,
+    lifetime_types: &std::collections::HashSet<String>,
+) -> String {
+    // For NamespacedType, check if the referenced type needs a lifetime
+    if let FieldType::NamespacedType { package, name } = field_type {
+        let base = nros_type_for_field_with_mode(field_type, current_package, mode);
+        let qualified = if let Some(pkg) = package {
+            format!("{}::{}", pkg, name)
+        } else {
+            format!("{}::{}", current_package.unwrap_or(""), name)
+        };
+        if lifetime_types.contains(&qualified) {
+            return format!("{}<'a>", base);
+        }
+        return base;
+    }
+
+    // For Sequence, only use &'a [T] for byte/string/nested element types.
+    // Multi-byte primitives fall through to the base mapping (heapless::Vec).
+    if let FieldType::Sequence { element_type } = field_type {
+        let is_byte = matches!(
+            element_type.as_ref(),
+            FieldType::Primitive(rosidl_parser::PrimitiveType::UInt8)
+                | FieldType::Primitive(rosidl_parser::PrimitiveType::Int8)
+                | FieldType::Primitive(rosidl_parser::PrimitiveType::Byte)
+                | FieldType::Primitive(rosidl_parser::PrimitiveType::Char)
+                | FieldType::Primitive(rosidl_parser::PrimitiveType::Bool)
+        );
+        let is_string = matches!(
+            element_type.as_ref(),
+            FieldType::String | FieldType::WString
+        );
+        let is_nested = matches!(element_type.as_ref(), FieldType::NamespacedType { .. });
+        if is_byte || is_string || is_nested {
+            let elem = nros_type_for_field_with_lifetime(
+                element_type,
+                current_package,
+                mode,
+                lifetime_types,
+            );
+            return format!("&'a [{}]", elem);
+        }
+        // Multi-byte primitives: fall through to base mapping (heapless::Vec)
+    }
+
+    // For BoundedSequence with lifetime elements, use heapless::Vec with lifetime element
+    if let FieldType::BoundedSequence {
+        element_type,
+        max_size,
+    } = field_type
+    {
+        let elem =
+            nros_type_for_field_with_lifetime(element_type, current_package, mode, lifetime_types);
+        let inline = mode == NrosCodegenMode::Inline;
+        return if inline {
+            format!("nros_core::heapless::Vec<{}, {}>", elem, max_size)
+        } else {
+            format!("heapless::Vec<{}, {}>", elem, max_size)
+        };
+    }
+
+    if let FieldType::Array { element_type, size } = field_type {
+        let elem =
+            nros_type_for_field_with_lifetime(element_type, current_package, mode, lifetime_types);
+        return format!("[{}; {}]", elem, size);
+    }
+
+    // All other types: use the base mapping (no lifetime changes)
+    nros_type_for_field_with_mode(field_type, current_package, mode)
+}
+
+/// Get the owned Rust type string for a field, using `TypeOwned` for nested types with lifetimes.
+///
+/// For `NamespacedType` in the lifetime set → `TypeOwned`.
+/// For `Sequence { NamespacedType }` in the lifetime set → `heapless::Vec<TypeOwned, N>`.
+pub fn nros_owned_type_for_nested(
+    field_type: &FieldType,
+    current_package: Option<&str>,
+    mode: NrosCodegenMode,
+    lifetime_types: &std::collections::HashSet<String>,
+) -> String {
+    // Handle Sequence of lifetime-nested types
+    if let FieldType::Sequence { element_type } = field_type {
+        if let FieldType::NamespacedType { package, name } = element_type.as_ref() {
+            let qualified = if let Some(pkg) = package {
+                format!("{}::{}", pkg, name)
+            } else {
+                format!("{}::{}", current_package.unwrap_or(""), name)
+            };
+            if lifetime_types.contains(&qualified) {
+                let base = nros_type_for_field_with_mode(element_type, current_package, mode);
+                let inline = mode == NrosCodegenMode::Inline;
+                return if inline {
+                    format!(
+                        "nros_core::heapless::Vec<{}Owned, {}>",
+                        base, NROS_DEFAULT_SEQUENCE_CAPACITY
+                    )
+                } else {
+                    format!(
+                        "heapless::Vec<{}Owned, {}>",
+                        base, NROS_DEFAULT_SEQUENCE_CAPACITY
+                    )
+                };
+            }
+        }
+    }
+
+    if let FieldType::NamespacedType { package, name } = field_type {
+        let qualified = if let Some(pkg) = package {
+            format!("{}::{}", pkg, name)
+        } else {
+            format!("{}::{}", current_package.unwrap_or(""), name)
+        };
+        if lifetime_types.contains(&qualified) {
+            // Use the Owned variant
+            let base = nros_type_for_field_with_mode(field_type, current_package, mode);
+            return format!("{}Owned", base);
+        }
+    }
+
+    // Not a lifetime nested type — same as base type
+    nros_type_for_field_with_mode(field_type, current_package, mode)
 }
 
 /// Get the Rust type string for a constant using nros backend

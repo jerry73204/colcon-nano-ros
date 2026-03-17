@@ -187,6 +187,12 @@ pub struct NrosField {
     /// Owned Rust type for `*Owned` struct (e.g., `heapless::String<256>` when
     /// `rust_type` is `&'a str`). Empty if same as `rust_type` (fixed-size fields).
     pub owned_type: String,
+    /// True when this is a nested type that has a lifetime parameter
+    /// (e.g., `ParameterValue<'a>`). The Owned variant uses `ParameterValueOwned`.
+    pub is_lifetime_nested: bool,
+    /// True when the sequence element is a single-byte type (u8, i8, bool) —
+    /// eligible for zero-copy `read_slice_u8()` in borrowed deserialization.
+    pub is_byte_element: bool,
 }
 
 #[derive(Template)]

@@ -1,6 +1,6 @@
 use super::common::{
     GeneratorError, build_c_field, determine_field_kind, field_to_nros_field,
-    field_to_nros_field_with_mode,
+    field_to_nros_field_with_lifetime, field_to_nros_field_with_mode, to_owned_nros_field,
 };
 use crate::templates::{
     BuildRsTemplate, CConstant, CField, CargoNrosTomlTemplate, CargoTomlTemplate, IdiomaticField,
@@ -156,6 +156,31 @@ pub fn generate_nros_service_package(
     package_version: &str,
     edition: RosEdition,
 ) -> Result<GeneratedNrosServicePackage, GeneratorError> {
+    let lifetime_types = HashSet::new();
+    generate_nros_service_package_with_lifetimes(
+        package_name,
+        service_name,
+        service,
+        all_dependencies,
+        package_version,
+        edition,
+        &lifetime_types,
+    )
+}
+
+/// Generate nros service package with lifetime-aware type mapping.
+///
+/// Service types are always owned. Nested message types with lifetimes
+/// use their `*Owned` variants (e.g., `ParameterOwned` instead of `Parameter<'a>`).
+pub fn generate_nros_service_package_with_lifetimes(
+    package_name: &str,
+    service_name: &str,
+    service: &Service,
+    all_dependencies: &HashSet<String>,
+    package_version: &str,
+    edition: RosEdition,
+    lifetime_types: &HashSet<String>,
+) -> Result<GeneratedNrosServicePackage, GeneratorError> {
     // Extract dependencies from request and response
     let mut req_deps = extract_dependencies(&service.request);
     let resp_deps = extract_dependencies(&service.response);
@@ -183,12 +208,12 @@ pub fn generate_nros_service_package(
     };
     let lib_rs = lib_rs_template.render()?;
 
-    // Generate request fields
+    // Generate request fields (using owned types — services are always owned)
     let request_fields: Vec<NrosField> = service
         .request
         .fields
         .iter()
-        .map(|f| field_to_nros_field(f, package_name))
+        .map(|f| to_owned_nros_field(f, package_name, &lifetime_types))
         .collect();
 
     let request_constants: Vec<MessageConstant> = service
@@ -202,12 +227,12 @@ pub fn generate_nros_service_package(
         })
         .collect();
 
-    // Generate response fields
+    // Generate response fields (using owned types — services are always owned)
     let response_fields: Vec<NrosField> = service
         .response
         .fields
         .iter()
-        .map(|f| field_to_nros_field(f, package_name))
+        .map(|f| to_owned_nros_field(f, package_name, &lifetime_types))
         .collect();
 
     let response_constants: Vec<MessageConstant> = service

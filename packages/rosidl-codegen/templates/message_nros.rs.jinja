@@ -229,8 +229,8 @@ impl<'a> {{ message_name }}<'a> {
                 }
                 arr
             },
-{%- else if field.is_unbounded_sequence && field.is_primitive_element %}
-            {{ field.name }}: reader.read_slice_{{ field.element_primitive_method }}()?,
+{%- else if field.is_unbounded_sequence && field.is_byte_element %}
+            {{ field.name }}: reader.read_slice_u8()?,
 {%- else if field.is_sequence %}
             {{ field.name }}: {
                 let len = reader.read_u32()? as usize;
@@ -433,6 +433,20 @@ impl {{ message_name }}<'_> {
                 let _ = v.extend_from_slice(self.{{ field.name }});
                 v
             },
+{%- else if field.is_lifetime_nested && field.is_unbounded_sequence %}
+            {{ field.name }}: {
+{%- if inline_mode %}
+                let mut v = nros_core::heapless::Vec::new();
+{%- else %}
+                let mut v = heapless::Vec::new();
+{%- endif %}
+                for item in self.{{ field.name }} {
+                    let _ = v.push(item.to_owned());
+                }
+                v
+            },
+{%- else if field.is_lifetime_nested %}
+            {{ field.name }}: self.{{ field.name }}.to_owned(),
 {%- else %}
             {{ field.name }}: self.{{ field.name }}.clone(),
 {%- endif %}
@@ -448,8 +462,12 @@ impl {{ message_name }}Owned {
 {%- for field in fields %}
 {%- if field.is_unbounded_string %}
             {{ field.name }}: self.{{ field.name }}.as_str(),
+{%- else if field.is_unbounded_sequence && field.is_lifetime_nested %}
+            {{ field.name }}: self.{{ field.name }}.as_slice(),
 {%- else if field.is_unbounded_sequence %}
             {{ field.name }}: self.{{ field.name }}.as_slice(),
+{%- else if field.is_lifetime_nested %}
+            {{ field.name }}: self.{{ field.name }}.as_ref(),
 {%- else %}
             {{ field.name }}: self.{{ field.name }}.clone(),
 {%- endif %}

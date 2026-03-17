@@ -17,11 +17,12 @@ pub use cpp::{
 pub use msg::{
     GeneratedCPackage, GeneratedNrosPackage, GeneratedPackage, generate_c_message_package,
     generate_message_package, generate_nros_inline_message, generate_nros_message_package,
+    generate_nros_message_package_with_lifetimes,
 };
 pub use srv::{
     GeneratedCServicePackage, GeneratedNrosServicePackage, GeneratedServicePackage,
     generate_c_service_package, generate_nros_inline_service, generate_nros_service_package,
-    generate_service_package,
+    generate_nros_service_package_with_lifetimes, generate_service_package,
 };
 
 #[cfg(test)]
