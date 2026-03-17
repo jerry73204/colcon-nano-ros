@@ -309,10 +309,6 @@ pub struct CField {
     pub is_nested: bool,
     pub is_primitive_element: bool,
     pub is_string_element: bool,
-    /// True for unbounded strings — struct { const char* data; size_t size; }
-    pub is_unbounded_string: bool,
-    /// True for unbounded sequences — struct { const T* data; size_t size; }
-    pub is_unbounded_sequence: bool,
 }
 
 /// Constant for C code generation
