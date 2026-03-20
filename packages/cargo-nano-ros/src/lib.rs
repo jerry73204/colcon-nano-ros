@@ -350,6 +350,12 @@ fn apply_package_renames(
 }
 
 /// Recursively fix Rust identifier references in .rs files.
+///
+/// Only replaces occurrences outside of string literals, so that
+/// `RosMessage::TYPE_NAME` / `RosService::SERVICE_NAME` constants — which
+/// must use the original ROS package name for DDS wire compatibility — are
+/// left untouched when the Rust crate is renamed (e.g. `rcl_interfaces` →
+/// `nros_rcl_interfaces`).
 fn fix_rust_idents_recursive(
     dir: &Path,
     ident_renames: &std::collections::HashMap<String, String>,
@@ -369,7 +375,7 @@ fn fix_rust_idents_recursive(
                 let old_ref = format!("{}::", old_ident);
                 let new_ref = format!("{}::", new_ident);
                 if content.contains(&old_ref) {
-                    content = content.replace(&old_ref, &new_ref);
+                    content = replace_outside_strings(&content, &old_ref, &new_ref);
                     changed = true;
                 }
             }
@@ -380,6 +386,53 @@ fn fix_rust_idents_recursive(
         }
     }
     Ok(())
+}
+
+/// Replace all occurrences of `old` with `new` in `src`, skipping content
+/// inside double-quoted string literals.
+///
+/// This ensures that DDS `TYPE_NAME` / `SERVICE_NAME` string constants are not
+/// affected by crate renames while Rust `use` paths and identifiers are.
+fn replace_outside_strings(src: &str, old: &str, new: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let bytes = src.as_bytes();
+    let old_bytes = old.as_bytes();
+    let mut i = 0;
+    let mut in_string = false;
+    let mut in_char = false;
+
+    while i < bytes.len() {
+        // Handle escape sequences inside strings/chars
+        if (in_string || in_char) && bytes[i] == b'\\' && i + 1 < bytes.len() {
+            out.push(bytes[i] as char);
+            out.push(bytes[i + 1] as char);
+            i += 2;
+            continue;
+        }
+        // Toggle string literal tracking
+        if !in_char && bytes[i] == b'"' {
+            in_string = !in_string;
+            out.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+        // Toggle char literal tracking
+        if !in_string && bytes[i] == b'\'' {
+            in_char = !in_char;
+            out.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+        // Only substitute outside of string/char literals
+        if !in_string && !in_char && bytes[i..].starts_with(old_bytes) {
+            out.push_str(new);
+            i += old_bytes.len();
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Get the path to bundled interface files.
