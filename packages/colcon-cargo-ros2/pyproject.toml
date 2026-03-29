@@ -59,9 +59,39 @@ Changelog = "https://github.com/azewiusz/colcon-nano-ros/releases"
 
 [project.entry-points."colcon_core.task.build"]
 "ros.ament_cargo" = "colcon_nano_ros.task.ament_cargo.build:AmentCargoBuildTask"
+# nano-ros embedded/native build types (nros.<lang>.<platform>)
+"ros.nros.rust.native" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.rust.freertos" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.rust.baremetal" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.rust.nuttx" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.rust.threadx" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.rust.zephyr" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.c.native" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.c.freertos" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.c.zephyr" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.c.nuttx" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.cpp.native" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.cpp.freertos" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.cpp.zephyr" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
+"ros.nros.cpp.nuttx" = "colcon_nano_ros.task.nros.build:NrosBuildTask"
 
 [project.entry-points."colcon_core.task.test"]
 "ros.ament_cargo" = "colcon_nano_ros.task.ament_cargo.test:AmentCargoTestTask"
+# nano-ros test tasks
+"ros.nros.rust.native" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.rust.freertos" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.rust.baremetal" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.rust.nuttx" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.rust.threadx" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.rust.zephyr" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.c.native" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.c.freertos" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.c.zephyr" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.c.nuttx" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.cpp.native" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.cpp.freertos" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.cpp.zephyr" = "colcon_nano_ros.task.nros.test:NrosTestTask"
+"ros.nros.cpp.nuttx" = "colcon_nano_ros.task.nros.test:NrosTestTask"
 
 [tool.maturin]
 bindings = "pyo3"
