@@ -25,6 +25,24 @@ PLATFORM_TARGETS = {
     'zephyr': None,  # Zephyr uses west build, not cargo --target
 }
 
+# Platform → CMake toolchain file name (relative to nano-ros cmake/toolchain/).
+# None means native (no toolchain file).
+PLATFORM_TOOLCHAINS = {
+    'native': None,
+    'freertos': 'arm-freertos-armcm3.cmake',
+    'baremetal': 'arm-none-eabi.cmake',
+    'nuttx': 'arm-nuttx.cmake',
+    'threadx': 'arm-threadx.cmake',
+    'zephyr': None,  # Zephyr uses west build
+}
+
+# SDK environment variables forwarded to CMake and Cargo builds.
+SDK_ENV_VARS = (
+    'FREERTOS_DIR', 'LWIP_DIR', 'FREERTOS_PORT', 'FREERTOS_CONFIG_DIR',
+    'NUTTX_DIR', 'NUTTX_APPS_DIR',
+    'THREADX_DIR', 'THREADX_CONFIG_DIR', 'NETX_DIR', 'NETX_CONFIG_DIR',
+)
+
 
 def parse_nros_type(pkg_type):
     """Parse 'ros.nros.<lang>.<platform>' into (lang, platform).
@@ -160,7 +178,15 @@ class NrosBuildTask(TaskExtensionPoint):
         if target:
             cmd.extend(['--target', target])
 
-        rc = await run(self.context, cmd, cwd=str(pkg_path))
+        # Forward SDK environment variables for embedded platforms.
+        # The board crate's build.rs reads these to locate FreeRTOS/lwIP/etc.
+        env = dict(os.environ)
+        for var in SDK_ENV_VARS:
+            val = os.environ.get(var)
+            if val:
+                env[var] = val
+
+        rc = await run(self.context, cmd, cwd=str(pkg_path), env=env)
         if rc and rc.returncode != 0:
             return rc.returncode
 
@@ -204,6 +230,31 @@ class NrosBuildTask(TaskExtensionPoint):
                 additional_hooks=hooks)
 
         return 0
+
+    def _resolve_toolchain(self, toolchain_name, install_base):
+        """Find a CMake toolchain file by name.
+
+        Searches:
+        1. NROS_TOOLCHAIN_DIR env var
+        2. nano-ros install prefix (share/nano-ros/cmake/toolchain/)
+        3. Relative to package's cmake/ directory
+        """
+        # Check env var first
+        toolchain_dir = os.environ.get('NROS_TOOLCHAIN_DIR')
+        if toolchain_dir:
+            path = Path(toolchain_dir) / toolchain_name
+            if path.exists():
+                return str(path)
+
+        # Check nano-ros install prefix
+        for candidate in [
+            install_base.parent / 'share' / 'nano-ros' / 'cmake' / 'toolchain' / toolchain_name,
+            install_base.parent / 'cmake' / 'toolchain' / toolchain_name,
+        ]:
+            if candidate.exists():
+                return str(candidate)
+
+        return None
 
     def _find_rust_binaries(self, pkg_path, target):
         """Find built binary targets using cargo metadata."""
@@ -264,6 +315,31 @@ class NrosBuildTask(TaskExtensionPoint):
         if env_prefix:
             prefix_paths.append(env_prefix)
         cmd.append(f'-DCMAKE_PREFIX_PATH={";".join(prefix_paths)}')
+
+        # Cross-compilation: pass toolchain file for embedded platforms.
+        # The toolchain file is resolved from NROS_TOOLCHAIN_DIR env var
+        # or the nano-ros install prefix.
+        toolchain_name = PLATFORM_TOOLCHAINS.get(platform)
+        if toolchain_name:
+            toolchain_file = self._resolve_toolchain(
+                toolchain_name, install_base)
+            if toolchain_file:
+                cmd.append(f'-DCMAKE_TOOLCHAIN_FILE={toolchain_file}')
+            else:
+                logger.warning(
+                    f"Toolchain file '{toolchain_name}' not found — "
+                    f"cross-compilation may fail")
+
+            # Pass RMW and platform to the NanoRos CMake config
+            cmd.append(f'-DNANO_ROS_RMW=zenoh')
+            cmd.append(f'-DNANO_ROS_PLATFORM=freertos_armcm3')
+
+        # Forward SDK environment variables as CMake -D flags.
+        # The CMake platform support module reads these.
+        for var in SDK_ENV_VARS:
+            val = os.environ.get(var)
+            if val:
+                cmd.append(f'-D{var}={val}')
 
         rc = await run(self.context, cmd)
         if rc and rc.returncode != 0:
