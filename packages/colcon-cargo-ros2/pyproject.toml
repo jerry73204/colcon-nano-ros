@@ -54,6 +54,9 @@ Documentation = "https://github.com/azewiusz/colcon-nano-ros#readme"
 Issues = "https://github.com/azewiusz/colcon-nano-ros/issues"
 Changelog = "https://github.com/azewiusz/colcon-nano-ros/releases"
 
+[project.entry-points."colcon_core.package_augmentation"]
+"nros" = "colcon_nano_ros.nros_augmentation:NrosBindingAugmentation"
+
 [project.entry-points."colcon_core.task.build"]
 # nano-ros embedded/native build types (nros.<lang>.<platform>)
 "ros.nros.rust.native" = "colcon_nano_ros.task.nros.build:NrosBuildTask"

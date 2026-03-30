@@ -43,6 +43,10 @@ def parse_nros_type(pkg_type):
     return parts[2], parts[3]
 
 
+# Lock file to ensure workspace-level binding generation runs only once
+_bindings_generated = False
+
+
 class NrosBuildTask(TaskExtensionPoint):
     """Build task for nano-ros packages (nros.<lang>.<platform>).
 
@@ -70,6 +74,11 @@ class NrosBuildTask(TaskExtensionPoint):
             f"(lang={lang}, platform={platform})"
         )
 
+        # Generate workspace-level bindings (once, first package triggers)
+        rc = await self._generate_bindings(pkg, args, lang)
+        if rc:
+            return rc
+
         if lang == 'rust':
             return await self._build_rust(pkg, args, platform,
                                           additional_hooks, skip_hook_creation)
@@ -79,6 +88,64 @@ class NrosBuildTask(TaskExtensionPoint):
         else:
             logger.error(f"Unknown language: {lang}")
             return 1
+
+    async def _generate_bindings(self, pkg, args, lang):
+        """Generate workspace-level interface bindings (once per workspace).
+
+        Checks NrosBindingAugmentation for collected interface dependencies,
+        then runs cargo nano-ros generate-rust/generate-cpp as needed.
+        Output goes to build/nros_bindings/<interface_pkg>/.
+        """
+        global _bindings_generated
+        if _bindings_generated:
+            return 0
+
+        # Set flag BEFORE any await to prevent concurrent tasks from
+        # also entering this path (Python asyncio is cooperative —
+        # the flag must be set before yielding control).
+        _bindings_generated = True
+
+        from colcon_nano_ros.nros_augmentation import NrosBindingAugmentation
+
+        interface_deps = getattr(NrosBindingAugmentation, '_interface_deps', set())
+        if not interface_deps:
+            return 0
+
+        # Derive workspace build dir from args.build_base
+        # args.build_base is per-package (e.g., build/hello_nros)
+        # We want the workspace-level build/ dir
+        build_root = Path(args.build_base).resolve().parent
+        bindings_dir = build_root / 'nros_bindings'
+        bindings_dir.mkdir(parents=True, exist_ok=True)
+
+        NrosBindingAugmentation._bindings_dir = bindings_dir
+
+        logger.info(
+            f"Generating nros bindings for: {', '.join(sorted(interface_deps))}"
+        )
+
+        # Generate Rust bindings if any Rust nros packages exist
+        if NrosBindingAugmentation._needs_rust:
+            for dep in sorted(interface_deps):
+                dep_dir = bindings_dir / dep
+                if dep_dir.exists() and any(dep_dir.rglob('*.rs')):
+                    logger.debug(f"Rust bindings for '{dep}' already exist")
+                    continue
+                cmd = [
+                    'cargo', 'nano-ros', 'bindgen',
+                    '--package', dep,
+                    '--output', str(bindings_dir / dep),
+                ]
+                rc = await run(self.context, cmd)
+                if rc and rc.returncode != 0:
+                    logger.error(f"Failed to generate Rust bindings for '{dep}'")
+                    return rc.returncode
+
+        # C/C++ bindings are handled by CMake's nano_ros_generate_interfaces()
+        # during the cmake build step — not here.
+
+        logger.info(f"nros bindings generated in {bindings_dir}")
+        return 0
 
     async def _build_rust(self, pkg, args, platform,
                           additional_hooks, skip_hook_creation):
