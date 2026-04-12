@@ -48,13 +48,30 @@ static inline const char* {{ struct_name }}_get_type_hash(void) {
 /// Initialize a {{ message_name }} message to default values
 void {{ struct_name }}_init({{ struct_name }}* msg);
 
-/// Serialize a {{ message_name }} message to CDR format
-/// Returns 0 on success, -1 on error. On success, *serialized_size contains bytes written.
+/// Serialize a {{ message_name }} message to CDR format (writes a fresh
+/// 4-byte CDR encapsulation header followed by the fields).
+/// Returns 0 on success, -1 on error. On success, *serialized_size contains
+/// bytes written.
 int32_t {{ struct_name }}_serialize(const {{ struct_name }}* msg, uint8_t* buffer, size_t buffer_size, size_t* serialized_size);
 
-/// Deserialize a {{ message_name }} message from CDR format
+/// Deserialize a {{ message_name }} message from CDR format (expects a
+/// 4-byte CDR encapsulation header followed by the fields).
 /// Returns 0 on success, -1 on error
 int32_t {{ struct_name }}_deserialize({{ struct_name }}* msg, const uint8_t* buffer, size_t buffer_size);
+
+/// Serialize a {{ message_name }} inline into an already-open CDR stream,
+/// without emitting its own encapsulation header. Used by parent messages,
+/// services, and actions that embed this type as a nested field.
+/// - ptr_ref: in/out current write pointer (advanced on success)
+/// - end: one-past-last byte of the destination buffer
+/// - origin: CDR alignment origin (start of the surrounding encapsulation)
+/// Returns 0 on success, -1 on error.
+int32_t {{ struct_name }}_serialize_inline(const {{ struct_name }}* msg, uint8_t** ptr_ref, const uint8_t* end, const uint8_t* origin);
+
+/// Deserialize a {{ message_name }} inline from an already-open CDR stream,
+/// without consuming an encapsulation header. Parameters mirror the inline
+/// serialize variant.
+int32_t {{ struct_name }}_deserialize_inline({{ struct_name }}* msg, const uint8_t** ptr_ref, const uint8_t* end, const uint8_t* origin);
 
 /// Get the nros_message_type_t for this message type
 const nros_message_type_t* {{ struct_name }}_get_type_support(void);
