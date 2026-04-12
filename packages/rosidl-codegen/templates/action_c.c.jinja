@@ -54,9 +54,9 @@ int32_t {{ goal_struct_name }}_serialize(const {{ goal_struct_name }}* msg, uint
 {%- else if field.is_string_element %}
         if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}[i]) < 0) return -1;
 {%- else %}
-        int32_t nested_len = {{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
 {%- endif %}
     }
 {%- else if field.is_sequence %}
@@ -67,16 +67,16 @@ int32_t {{ goal_struct_name }}_serialize(const {{ goal_struct_name }}* msg, uint
 {%- else if field.is_string_element %}
         if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}.data[i]) < 0) return -1;
 {%- else %}
-        int32_t nested_len = {{ field.element_struct_name }}_serialize(&msg->{{ field.name }}.data[i], ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}.data[i], ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
 {%- endif %}
     }
 {%- else %}
     {
-        int32_t nested_len = {{ field.nested_struct_name }}_serialize(&msg->{{ field.name }}, ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.nested_struct_name }}_serialize(&msg->{{ field.name }}, ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
     }
 {%- endif %}
 {%- endfor %}
@@ -173,9 +173,9 @@ int32_t {{ result_struct_name }}_serialize(const {{ result_struct_name }}* msg, 
 {%- else if field.is_string_element %}
         if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}[i]) < 0) return -1;
 {%- else %}
-        int32_t nested_len = {{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
 {%- endif %}
     }
 {%- else if field.is_sequence %}
@@ -186,16 +186,16 @@ int32_t {{ result_struct_name }}_serialize(const {{ result_struct_name }}* msg, 
 {%- else if field.is_string_element %}
         if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}.data[i]) < 0) return -1;
 {%- else %}
-        int32_t nested_len = {{ field.element_struct_name }}_serialize(&msg->{{ field.name }}.data[i], ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}.data[i], ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
 {%- endif %}
     }
 {%- else %}
     {
-        int32_t nested_len = {{ field.nested_struct_name }}_serialize(&msg->{{ field.name }}, ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.nested_struct_name }}_serialize(&msg->{{ field.name }}, ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
     }
 {%- endif %}
 {%- endfor %}
@@ -292,9 +292,9 @@ int32_t {{ feedback_struct_name }}_serialize(const {{ feedback_struct_name }}* m
 {%- else if field.is_string_element %}
         if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}[i]) < 0) return -1;
 {%- else %}
-        int32_t nested_len = {{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}[i], ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
 {%- endif %}
     }
 {%- else if field.is_sequence %}
@@ -305,16 +305,16 @@ int32_t {{ feedback_struct_name }}_serialize(const {{ feedback_struct_name }}* m
 {%- else if field.is_string_element %}
         if (nros_cdr_write_string(&ptr, end, origin, msg->{{ field.name }}.data[i]) < 0) return -1;
 {%- else %}
-        int32_t nested_len = {{ field.element_struct_name }}_serialize(&msg->{{ field.name }}.data[i], ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.element_struct_name }}_serialize(&msg->{{ field.name }}.data[i], ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
 {%- endif %}
     }
 {%- else %}
     {
-        int32_t nested_len = {{ field.nested_struct_name }}_serialize(&msg->{{ field.name }}, ptr, end - ptr);
-        if (nested_len < 0) return -1;
-        ptr += nested_len - 4;
+        size_t nested_len = 0;
+        if ({{ field.nested_struct_name }}_serialize(&msg->{{ field.name }}, ptr, end - ptr, &nested_len) < 0) return -1;
+        ptr += nested_len - 4; // Subtract header
     }
 {%- endif %}
 {%- endfor %}

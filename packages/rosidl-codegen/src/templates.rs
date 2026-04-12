@@ -355,6 +355,7 @@ pub struct ServiceCHeaderTemplate<'a> {
     pub response_fields: Vec<CField>,
     pub response_constants: Vec<CConstant>,
     pub dependencies: Vec<String>,
+    pub type_includes: Vec<String>,
     pub has_request_fields: bool,
     pub has_response_fields: bool,
 }
@@ -394,6 +395,7 @@ pub struct ActionCHeaderTemplate<'a> {
     pub feedback_fields: Vec<CField>,
     pub feedback_constants: Vec<CConstant>,
     pub dependencies: Vec<String>,
+    pub type_includes: Vec<String>,
     pub has_goal_fields: bool,
     pub has_result_fields: bool,
     pub has_feedback_fields: bool,

@@ -1434,7 +1434,7 @@ fn generate_cpp_umbrella_header(
     if !dependencies.is_empty() {
         content.push_str("// Dependencies\n");
         for dep in dependencies {
-            content.push_str(&format!("#include <{}.hpp>\n", dep));
+            content.push_str(&format!("#include <{}/{}.hpp>\n", dep, dep));
         }
         content.push('\n');
     }
@@ -1507,11 +1507,15 @@ fn generate_umbrella_header(
     // Include nros core types (modular header)
     content.push_str("#include <nros/types.h>\n\n");
 
-    // Include dependency headers
+    // Include dependency headers. Each dependency's umbrella header lives at
+    // `<pkg>/<pkg>.h` (sibling directory to this one), so emit the full
+    // relative path rather than `<pkg.h>` alone — the latter would only
+    // work if the build system put every package directory directly on
+    // the include path, which it doesn't.
     if !dependencies.is_empty() {
         content.push_str("// Dependencies\n");
         for dep in dependencies {
-            content.push_str(&format!("#include <{}.h>\n", dep));
+            content.push_str(&format!("#include <{}/{}.h>\n", dep, dep));
         }
         content.push('\n');
     }

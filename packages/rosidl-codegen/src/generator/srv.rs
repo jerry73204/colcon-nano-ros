@@ -358,25 +358,54 @@ pub fn generate_c_service_package(
     let header_name = format!("{}_srv_{}.h", c_pkg_name, srv_snake);
     let source_name = format!("{}_srv_{}.c", c_pkg_name, srv_snake);
 
-    // Extract dependencies from both request and response
+    // Extract dependencies from both request and response.
+    // Mirrors the logic in msg.rs: produce one `type_includes` entry per
+    // referenced struct (same-package OR cross-package) and a separate
+    // `dependencies` list of other packages (used elsewhere for metadata).
     let mut dependencies = Vec::new();
+    let mut type_includes = Vec::new();
     for field in service
         .request
         .fields
         .iter()
         .chain(service.response.fields.iter())
     {
-        if let FieldType::NamespacedType {
-            package: Some(pkg), ..
-        } = &field.field_type
-        {
+        let field_type = match &field.field_type {
+            FieldType::NamespacedType { .. } => Some(&field.field_type),
+            FieldType::Array { element_type, .. }
+            | FieldType::Sequence { element_type }
+            | FieldType::BoundedSequence { element_type, .. } => {
+                if matches!(element_type.as_ref(), FieldType::NamespacedType { .. }) {
+                    Some(element_type.as_ref())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(FieldType::NamespacedType { package, name }) = field_type {
+            let pkg = package.as_deref().unwrap_or(package_name);
             let dep = to_c_package_name(pkg);
-            if !dependencies.contains(&dep) {
-                dependencies.push(dep);
+            let header_filename =
+                format!("{}_msg_{}.h", to_c_package_name(pkg), to_snake_case(name));
+            let type_header = if dep != c_pkg_name {
+                // Cross-package: include with subdirectory path.
+                if !dependencies.contains(&dep) {
+                    dependencies.push(dep.clone());
+                }
+                format!("{}/msg/{}", dep, header_filename)
+            } else {
+                // Intra-package: the srv .h lives at <pkg>/srv/, so the
+                // msg header is one level up in ../msg/.
+                format!("../msg/{}", header_filename)
+            };
+            if !type_includes.contains(&type_header) {
+                type_includes.push(type_header);
             }
         }
     }
     dependencies.sort();
+    type_includes.sort();
 
     // Build C fields for request
     let request_fields: Vec<CField> = service
@@ -434,6 +463,7 @@ pub fn generate_c_service_package(
         response_fields: response_fields.clone(),
         response_constants,
         dependencies,
+        type_includes,
         has_request_fields,
         has_response_fields,
     };

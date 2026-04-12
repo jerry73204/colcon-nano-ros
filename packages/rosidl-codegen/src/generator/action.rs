@@ -431,8 +431,11 @@ pub fn generate_c_action_package(
     let header_name = format!("{}_action_{}.h", c_pkg_name, action_snake);
     let source_name = format!("{}_action_{}.c", c_pkg_name, action_snake);
 
-    // Extract dependencies from goal, result, and feedback
+    // Extract dependencies from goal, result, and feedback.
+    // Same pattern as msg.rs: per-type `type_includes` with correct paths,
+    // plus a flat `dependencies` list for metadata.
     let mut dependencies = Vec::new();
+    let mut type_includes = Vec::new();
     for field in action
         .spec
         .goal
@@ -441,17 +444,42 @@ pub fn generate_c_action_package(
         .chain(action.spec.result.fields.iter())
         .chain(action.spec.feedback.fields.iter())
     {
-        if let FieldType::NamespacedType {
-            package: Some(pkg), ..
-        } = &field.field_type
-        {
+        let field_type = match &field.field_type {
+            FieldType::NamespacedType { .. } => Some(&field.field_type),
+            FieldType::Array { element_type, .. }
+            | FieldType::Sequence { element_type }
+            | FieldType::BoundedSequence { element_type, .. } => {
+                if matches!(element_type.as_ref(), FieldType::NamespacedType { .. }) {
+                    Some(element_type.as_ref())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        if let Some(FieldType::NamespacedType { package, name }) = field_type {
+            let pkg = package.as_deref().unwrap_or(package_name);
             let dep = to_c_package_name(pkg);
-            if !dependencies.contains(&dep) {
-                dependencies.push(dep);
+            let header_filename =
+                format!("{}_msg_{}.h", to_c_package_name(pkg), to_snake_case(name));
+            let type_header = if dep != c_pkg_name {
+                // Cross-package: include with subdirectory path.
+                if !dependencies.contains(&dep) {
+                    dependencies.push(dep.clone());
+                }
+                format!("{}/msg/{}", dep, header_filename)
+            } else {
+                // Intra-package: the action .h lives at <pkg>/action/, so the
+                // msg header is one level up in ../msg/.
+                format!("../msg/{}", header_filename)
+            };
+            if !type_includes.contains(&type_header) {
+                type_includes.push(type_header);
             }
         }
     }
     dependencies.sort();
+    type_includes.sort();
 
     // Build C fields for goal
     let goal_fields: Vec<CField> = action
@@ -538,6 +566,7 @@ pub fn generate_c_action_package(
         feedback_fields: feedback_fields.clone(),
         feedback_constants,
         dependencies,
+        type_includes,
         has_goal_fields,
         has_result_fields,
         has_feedback_fields,
