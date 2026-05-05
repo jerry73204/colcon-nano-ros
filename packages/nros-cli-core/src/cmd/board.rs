@@ -114,7 +114,7 @@ fn read_board(cargo_toml: &Path) -> Result<BoardEntry> {
 
 /// Walk upward from cwd until a directory containing `packages/boards/`
 /// is found. Errors if none reached before the filesystem root.
-fn find_workspace_root() -> Result<PathBuf> {
+pub(crate) fn find_workspace_root() -> Result<PathBuf> {
     let cwd = std::env::current_dir()?;
     let mut cur: &Path = &cwd;
     loop {
