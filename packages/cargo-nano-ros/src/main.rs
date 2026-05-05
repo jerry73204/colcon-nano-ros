@@ -5,7 +5,7 @@
 use cargo_nano_ros::GenerateConfig;
 use clap::{Parser, Subcommand};
 use eyre::Result;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Standalone build tool for nros
 #[derive(Parser, Debug)]
@@ -237,7 +237,14 @@ fn main() -> Result<()> {
             lang,
             platform,
         } => {
-            scaffold_package(&name, &lang, &platform)?;
+            cargo_nano_ros::scaffold::scaffold_package(&cargo_nano_ros::scaffold::ScaffoldConfig {
+                name,
+                lang,
+                platform,
+                rmw: "zenoh".to_string(),
+                use_case: "talker".to_string(),
+                force: false,
+            })?;
         }
 
         NanoRosCommand::Clean { output, config } => {
@@ -249,235 +256,3 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn scaffold_package(name: &str, lang: &str, platform: &str) -> Result<()> {
-    use std::fs;
-
-    let dir = PathBuf::from(name);
-    if dir.exists() {
-        eyre::bail!("Directory '{}' already exists", name);
-    }
-
-    let build_type = format!("nros.{lang}.{platform}");
-
-    // Create directory structure
-    fs::create_dir_all(dir.join("src"))?;
-
-    // package.xml
-    let package_xml = format!(
-        r#"<?xml version="1.0"?>
-<package format="3">
-  <name>{name}</name>
-  <version>0.1.0</version>
-  <description>{name} — nano-ros {platform} package</description>
-  <maintainer email="TODO@todo.com">TODO</maintainer>
-  <license>Apache-2.0</license>
-  <depend>std_msgs</depend>
-  <export>
-    <build_type>{build_type}</build_type>
-  </export>
-</package>
-"#
-    );
-    fs::write(dir.join("package.xml"), package_xml)?;
-
-    match lang {
-        "rust" => scaffold_rust(name, platform, &dir)?,
-        "c" => scaffold_c(name, platform, &dir)?,
-        "cpp" => scaffold_cpp(name, platform, &dir)?,
-        _ => eyre::bail!("Unknown language: {lang}. Use rust, c, or cpp."),
-    }
-
-    println!("✓ Created nano-ros package '{name}'");
-    println!("  Language: {lang}");
-    println!("  Platform: {platform}");
-    println!("  Build type: {build_type}");
-    println!();
-    println!("Next steps:");
-    println!("  cd {name}");
-    println!("  colcon build --packages-select {name}");
-
-    Ok(())
-}
-
-fn scaffold_rust(name: &str, platform: &str, dir: &Path) -> Result<()> {
-    use std::fs;
-
-    // Cargo.toml
-    let mut deps = String::new();
-    let is_embedded = platform != "native";
-
-    if is_embedded {
-        deps.push_str(&format!(
-            "nros = {{ version = \"0.1\", default-features = false, features = [\"rmw-zenoh\", \"platform-{platform}\", \"ros-humble\"] }}\n"
-        ));
-        // Default board crate based on platform
-        let board_crate = match platform {
-            "freertos" => "nros-board-mps2-an385-freertos",
-            "baremetal" => "nros-board-mps2-an385",
-            "nuttx" => "nros-board-nuttx-qemu-arm",
-            _ => "# TODO: add board crate for this platform",
-        };
-        deps.push_str(&format!("{board_crate} = {{ version = \"0.1\" }}\n"));
-        deps.push_str("panic-semihosting = \"0.6\"\n");
-    } else {
-        // Native hello-world has no nros dependency — add it when needed:
-        // nros = { version = "0.1", features = ["std", "rmw-zenoh", "platform-posix", "ros-humble"] }
-        deps.push_str("# nros = { version = \"0.1\", features = [\"std\", \"rmw-zenoh\", \"platform-posix\", \"ros-humble\"] }\n");
-    }
-
-    let cargo_toml = format!(
-        r#"[package]
-name = "{name}"
-version = "0.1.0"
-edition = "2024"
-
-[workspace]
-
-[[bin]]
-name = "{name}"
-path = "src/main.rs"
-
-[dependencies]
-{deps}"#
-    );
-    fs::write(dir.join("Cargo.toml"), cargo_toml)?;
-
-    // src/main.rs
-    let main_rs = if is_embedded {
-        format!(
-            r#"#![no_std]
-#![no_main]
-
-use nros::prelude::*;
-// TODO: import your board crate
-// use nros_board_mps2_an385_freertos::{{Config, run, println}};
-use panic_semihosting as _;
-
-#[unsafe(no_mangle)]
-extern "C" fn _start() -> ! {{
-    // TODO: replace with your board crate's run()
-    loop {{}}
-}}
-"#
-        )
-    } else {
-        format!(
-            r#"fn main() {{
-    println!("Hello from {name}!");
-}}
-"#
-        )
-    };
-    fs::write(dir.join("src/main.rs"), main_rs)?;
-
-    // config.toml (for embedded platforms)
-    if is_embedded {
-        let config_toml = r#"[network]
-ip = "10.0.2.20"
-mac = "02:00:00:00:00:00"
-gateway = "10.0.2.2"
-netmask = "255.255.255.0"
-
-[zenoh]
-locator = "tcp/10.0.2.2:7447"
-domain_id = 0
-"#;
-        fs::write(dir.join("config.toml"), config_toml)?;
-    }
-
-    Ok(())
-}
-
-fn scaffold_c(name: &str, platform: &str, dir: &Path) -> Result<()> {
-    use std::fs;
-
-    let cmake = format!(
-        r#"cmake_minimum_required(VERSION 3.16)
-project({name} VERSION 0.1.0 LANGUAGES C)
-
-set(CMAKE_C_STANDARD 11)
-
-find_package(NanoRos REQUIRED CONFIG)
-
-add_executable({name} src/main.c)
-target_link_libraries({name} PRIVATE NanoRos::NanoRos)
-
-install(TARGETS {name} RUNTIME DESTINATION lib/{name})
-"#
-    );
-    fs::write(dir.join("CMakeLists.txt"), cmake)?;
-
-    let main_c = format!(
-        r#"#include <stdio.h>
-
-int main(void) {{
-    printf("Hello from {name}!\\n");
-    return 0;
-}}
-"#
-    );
-    fs::write(dir.join("src/main.c"), main_c)?;
-
-    if platform != "native" {
-        let config_toml = r#"[network]
-ip = "10.0.2.20"
-mac = "02:00:00:00:00:00"
-gateway = "10.0.2.2"
-netmask = "255.255.255.0"
-
-[zenoh]
-locator = "tcp/10.0.2.2:7447"
-domain_id = 0
-"#;
-        fs::write(dir.join("config.toml"), config_toml)?;
-    }
-
-    Ok(())
-}
-
-fn scaffold_cpp(name: &str, platform: &str, dir: &Path) -> Result<()> {
-    use std::fs;
-
-    let cmake = format!(
-        r#"cmake_minimum_required(VERSION 3.16)
-project({name} VERSION 0.1.0 LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 14)
-
-find_package(NanoRos REQUIRED CONFIG)
-
-add_executable({name} src/main.cpp)
-target_link_libraries({name} PRIVATE NanoRos::NanoRosCpp)
-
-install(TARGETS {name} RUNTIME DESTINATION lib/{name})
-"#
-    );
-    fs::write(dir.join("CMakeLists.txt"), cmake)?;
-
-    let main_cpp = format!(
-        r#"#include <cstdio>
-
-int main() {{
-    printf("Hello from {name}!\\n");
-    return 0;
-}}
-"#
-    );
-    fs::write(dir.join("src/main.cpp"), main_cpp)?;
-
-    if platform != "native" {
-        let config_toml = r#"[network]
-ip = "10.0.2.20"
-mac = "02:00:00:00:00:00"
-gateway = "10.0.2.2"
-netmask = "255.255.255.0"
-
-[zenoh]
-locator = "tcp/10.0.2.2:7447"
-domain_id = 0
-"#;
-        fs::write(dir.join("config.toml"), config_toml)?;
-    }
-
-    Ok(())
-}

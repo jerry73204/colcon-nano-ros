@@ -37,6 +37,7 @@ pub mod config_patcher;
 pub mod dependency_parser;
 pub mod package_discovery;
 pub mod package_xml;
+pub mod scaffold;
 pub mod workflow;
 
 use eyre::{Result, WrapErr, eyre};

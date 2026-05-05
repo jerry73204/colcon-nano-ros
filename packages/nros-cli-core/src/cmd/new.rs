@@ -1,10 +1,16 @@
-//! `nros new <name>` — scaffold a new nano-ros project.
+//! `nros new <name>` — Phase 111.A.4.
 //!
-//! Phase 111.A.4. Skeleton for now; template expansion lands once the
-//! `templates/` tree is in place.
+//! Forwards to `cargo_nano_ros::scaffold::scaffold_package` so output
+//! stays in lockstep with the legacy `cargo nano-ros new` entry point.
+//! Use-case (`talker` / `listener` / `service` / `action`) and RMW-choice
+//! diversification are accepted at the CLI for forward-compat but
+//! currently affect only the printed "Next steps" banner — full
+//! per-use-case template trees land alongside the Phase 112 example
+//! sweep.
 
+use cargo_nano_ros::scaffold::{ScaffoldConfig, scaffold_package};
 use clap::Args as ClapArgs;
-use eyre::{Result, eyre};
+use eyre::Result;
 use std::path::PathBuf;
 
 #[derive(Debug, ClapArgs)]
@@ -13,7 +19,7 @@ pub struct Args {
     pub name: PathBuf,
 
     /// Target platform
-    #[arg(long, value_parser = ["freertos", "nuttx", "threadx", "zephyr", "esp32", "posix", "baremetal"])]
+    #[arg(long, value_parser = ["native", "freertos", "nuttx", "threadx", "zephyr", "esp32", "posix", "baremetal"])]
     pub platform: String,
 
     /// RMW backend
@@ -33,9 +39,19 @@ pub struct Args {
     pub force: bool,
 }
 
-pub fn run(_args: Args) -> Result<()> {
-    Err(eyre!(
-        "`nros new` is not implemented yet (Phase 111.A.4). \
-         For now, copy an example from `examples/` as a starting point."
-    ))
+pub fn run(args: Args) -> Result<()> {
+    let name = args
+        .name
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| eyre::eyre!("invalid project name: {}", args.name.display()))?
+        .to_string();
+    scaffold_package(&ScaffoldConfig {
+        name,
+        lang: args.lang,
+        platform: args.platform,
+        rmw: args.rmw,
+        use_case: args.use_case,
+        force: args.force,
+    })
 }
