@@ -76,6 +76,23 @@ int32_t {{ struct_name }}_deserialize_inline({{ struct_name }}* msg, const uint8
 /// Get the nros_message_type_t for this message type
 const nros_message_type_t* {{ struct_name }}_get_type_support(void);
 
+/// Typed publish helper. Serializes `msg` into a stack buffer of size
+/// `NROS_PUB_BUFFER_SIZE` (override at compile time; default 256) then
+/// hands it to nros_publish_raw. nros_ret_t / nros_publisher_t /
+/// nros_publish_raw all come in via <nros/types.h> (already included
+/// at the top of this header).
+#ifndef NROS_PUB_BUFFER_SIZE
+#define NROS_PUB_BUFFER_SIZE 256
+#endif
+static inline nros_ret_t {{ struct_name }}_publish(struct nros_publisher_t* publisher,
+                                                   const {{ struct_name }}* msg) {
+    uint8_t buf[NROS_PUB_BUFFER_SIZE];
+    size_t n = 0;
+    int32_t r = {{ struct_name }}_serialize(msg, buf, sizeof(buf), &n);
+    if (r != 0) return r;
+    return nros_publish_raw(publisher, buf, n);
+}
+
 #ifdef __cplusplus
 }
 #endif
