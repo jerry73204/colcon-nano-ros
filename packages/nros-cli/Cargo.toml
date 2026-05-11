@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "The `nros` user-facing CLI for nano-ros: scaffolding, codegen, build, run, doctor."
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["ros2", "cli", "scaffold", "codegen", "embedded"]
+categories = ["command-line-utilities", "development-tools::build-utils"]
 
 [[bin]]
 name = "nros"

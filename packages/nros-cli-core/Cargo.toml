@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Library backing the `nros` CLI: subcommand dispatch + shared logic, used by both the `nros` standalone binary and the `cargo nano-ros` shim."
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["ros2", "cli", "scaffold", "codegen", "embedded"]
+categories = ["command-line-utilities", "development-tools::build-utils"]
 
 [lib]
 name = "nros_cli_core"

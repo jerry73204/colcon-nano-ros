@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "C code generation tool for nros"
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["ros2", "codegen", "c", "embedded", "ffi"]
+categories = ["development-tools::build-utils", "embedded"]
 
 [[bin]]
 name = "nros-codegen"

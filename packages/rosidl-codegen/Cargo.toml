@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Code generator for ROS 2 Rust bindings"
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["ros2", "rosidl", "codegen", "robotics"]
+categories = ["development-tools::build-utils"]
 
 [dependencies]
 serde.workspace = true

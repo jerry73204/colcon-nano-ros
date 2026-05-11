@@ -5,6 +5,11 @@ edition = "2024"
 license = "Apache-2.0"
 authors = ["Lin Hsiang-Jui <jerry73204@gmail.com>"]
 description = "Extension for colcon to build nano-ros packages with automatic message type generation"
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["ros2", "colcon", "cargo", "build", "robotics"]
+categories = ["development-tools::build-utils", "command-line-utilities"]
 
 [lib]
 name = "cargo_ros2_py"

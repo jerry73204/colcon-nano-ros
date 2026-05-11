@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Standalone build tool for nano-ros: generate message bindings from package.xml"
+homepage.workspace = true
+documentation.workspace = true
+readme = "README.md"
+keywords = ["ros2", "cargo", "subcommand", "codegen", "embedded"]
+categories = ["development-tools::cargo-plugins", "development-tools::build-utils", "command-line-utilities"]
 
 [lib]
 name = "cargo_nano_ros"
