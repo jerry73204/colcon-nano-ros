@@ -43,6 +43,7 @@ pub mod workflow;
 use eyre::{Result, WrapErr, eyre};
 use rosidl_bindgen::ament::{AmentIndex, Package};
 use rosidl_codegen::RosEdition;
+use rosidl_codegen::utils::to_snake_case;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -1312,6 +1313,16 @@ pub fn generate_cpp_from_args_file(config: GenerateCppConfig) -> Result<()> {
                 write_if_changed(msg_dir.join(&generated.header_name), &generated.header)?;
                 write_if_changed(msg_dir.join(&generated.ffi_rs_name), &generated.ffi_rs)?;
 
+                // Phase 123.B.8 — emit ROS-style alias header
+                // `msg/<snake_name>.hpp` that #includes the canonical
+                // prefixed `<package>_msg_<snake_name>.hpp`. Lets
+                // users write `#include <std_msgs/msg/int32.hpp>`
+                // instead of the prefixed flat form.
+                write_b8_alias_header(
+                    &msg_dir.join(format!("{}.hpp", to_snake_case(file_name))),
+                    &generated.header_name,
+                )?;
+
                 msg_headers.push(generated.header_name);
                 ffi_rs_files.push(format!("msg/{}", generated.ffi_rs_name));
 
@@ -1342,6 +1353,12 @@ pub fn generate_cpp_from_args_file(config: GenerateCppConfig) -> Result<()> {
                 write_if_changed(
                     srv_dir.join(&generated.response_ffi_rs_name),
                     &generated.response_ffi_rs,
+                )?;
+
+                // Phase 123.B.8 — ROS-style alias header.
+                write_b8_alias_header(
+                    &srv_dir.join(format!("{}.hpp", to_snake_case(file_name))),
+                    &generated.header_name,
                 )?;
 
                 srv_headers.push(generated.header_name);
@@ -1379,6 +1396,12 @@ pub fn generate_cpp_from_args_file(config: GenerateCppConfig) -> Result<()> {
                 write_if_changed(
                     action_dir.join(&generated.feedback_ffi_rs_name),
                     &generated.feedback_ffi_rs,
+                )?;
+
+                // Phase 123.B.8 — ROS-style alias header.
+                write_b8_alias_header(
+                    &action_dir.join(format!("{}.hpp", to_snake_case(file_name))),
+                    &generated.header_name,
                 )?;
 
                 action_headers.push(generated.header_name);
@@ -1428,6 +1451,34 @@ pub fn generate_cpp_from_args_file(config: GenerateCppConfig) -> Result<()> {
         args.package_name
     );
 
+    Ok(())
+}
+
+/// Phase 123.B.8 — emit a thin ROS-2-conventional alias header
+/// that forwards to the canonical prefixed header in the same
+/// directory. Example: `msg/int32.hpp` containing
+/// `#include "std_msgs_msg_int32.hpp"`.
+///
+/// Lets users write `#include <std_msgs/msg/int32.hpp>` —
+/// matches rclcpp's include style — without the codegen having
+/// to abandon the unique-prefix naming scheme (which avoids
+/// collisions when two packages declare a `Header.msg`).
+fn write_b8_alias_header(alias_path: &Path, canonical_filename: &str) -> Result<()> {
+    let guard = alias_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("nros_alias")
+        .to_uppercase()
+        .replace('-', "_");
+    let content = format!(
+        "#ifndef NROS_ALIAS_{guard}_HPP_\n\
+         #define NROS_ALIAS_{guard}_HPP_\n\
+         // Auto-generated ROS-style alias header (Phase 123.B.8).\n\
+         // Forwards to the canonical prefixed header.\n\
+         #include \"{canonical_filename}\"\n\
+         #endif // NROS_ALIAS_{guard}_HPP_\n"
+    );
+    write_if_changed(alias_path, content)?;
     Ok(())
 }
 
