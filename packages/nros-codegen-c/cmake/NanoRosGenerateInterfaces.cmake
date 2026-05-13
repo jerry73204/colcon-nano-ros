@@ -193,14 +193,48 @@ function(nros_generate_interfaces target)
     set(_lang_flag "c")
   endif()
 
-  set(_output_dir "${CMAKE_CURRENT_BINARY_DIR}/${_subdir}/${target}")
+  # Phase 123.A.7 — workspace-shared codegen cache.
+  # When NANO_ROS_GEN_CACHE_DIR is set (cmake var or env var), all
+  # packages emit codegen into the same shared dir keyed by
+  # (language, target). CMake's mtime-based add_custom_command
+  # dependency tracking means the second package to configure sees
+  # the up-to-date output files and skips the regeneration.
+  #
+  # Multi-package workspace win: `std_msgs` codegen runs once across
+  # the workspace instead of once per consuming package.
+  #
+  # Concurrency caveat: colcon's --parallel-workers can race two
+  # packages on the same codegen target. Mitigation: declare an
+  # explicit dependency between packages in package.xml so colcon
+  # serializes them. Documented in installation.md (A.9).
+  set(_gen_cache_root "")
+  if(DEFINED NANO_ROS_GEN_CACHE_DIR AND NOT NANO_ROS_GEN_CACHE_DIR STREQUAL "")
+    set(_gen_cache_root "${NANO_ROS_GEN_CACHE_DIR}")
+  elseif(DEFINED ENV{NANO_ROS_GEN_CACHE_DIR} AND NOT "$ENV{NANO_ROS_GEN_CACHE_DIR}" STREQUAL "")
+    set(_gen_cache_root "$ENV{NANO_ROS_GEN_CACHE_DIR}")
+  endif()
+
+  if(_gen_cache_root)
+    set(_umbrella_dir "${_gen_cache_root}/${_subdir}")
+  else()
+    set(_umbrella_dir "${CMAKE_CURRENT_BINARY_DIR}/${_subdir}")
+  endif()
+  set(_output_dir "${_umbrella_dir}/${target}")
   file(MAKE_DIRECTORY "${_output_dir}")
   file(MAKE_DIRECTORY "${_output_dir}/msg")
   file(MAKE_DIRECTORY "${_output_dir}/srv")
   file(MAKE_DIRECTORY "${_output_dir}/action")
 
   # ---- Build JSON arguments file ----
-  set(_args_file "${CMAKE_CURRENT_BINARY_DIR}/nano_ros_generate_${_lang_flag}_args__${target}.json")
+  # Phase 123.A.7 — when the cache is active, store the args file in
+  # the cache too so the content-compare mtime preservation works
+  # across packages (otherwise each package writes a fresh args file
+  # into its own build dir and triggers regeneration).
+  if(_gen_cache_root)
+    set(_args_file "${_gen_cache_root}/nano_ros_generate_${_lang_flag}_args__${target}.json")
+  else()
+    set(_args_file "${CMAKE_CURRENT_BINARY_DIR}/nano_ros_generate_${_lang_flag}_args__${target}.json")
+  endif()
 
   set(_files_json "")
   set(_first TRUE)
@@ -222,7 +256,7 @@ function(nros_generate_interfaces target)
     string(APPEND _deps_json "\n    \"${_dep}\"")
   endforeach()
 
-  file(WRITE "${_args_file}" "{
+  set(_args_content "{
   \"package_name\": \"${target}\",
   \"output_dir\": \"${_output_dir}\",
   \"interface_files\": [${_files_json}
@@ -232,6 +266,21 @@ function(nros_generate_interfaces target)
   \"ros_edition\": \"${_ARG_ROS_EDITION}\"
 }
 ")
+
+  # Phase 123.A.7 — only rewrite the args file when content changes,
+  # so the cache-shared codegen doesn't get re-invoked on every cmake
+  # re-configure. Preserves mtime → add_custom_command sees outputs
+  # already up-to-date.
+  set(_should_write TRUE)
+  if(EXISTS "${_args_file}")
+    file(READ "${_args_file}" _existing_content)
+    if(_existing_content STREQUAL _args_content)
+      set(_should_write FALSE)
+    endif()
+  endif()
+  if(_should_write)
+    file(WRITE "${_args_file}" "${_args_content}")
+  endif()
 
   # ---- Predict output files ----
   set(_generated_headers "")
@@ -310,7 +359,7 @@ function(nros_generate_interfaces target)
     target_include_directories(${_lib_target}
       INTERFACE
         $<BUILD_INTERFACE:${_output_dir}>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/${_subdir}>
+        $<BUILD_INTERFACE:${_umbrella_dir}>
         $<INSTALL_INTERFACE:include/${target}>
     )
 
@@ -322,7 +371,13 @@ function(nros_generate_interfaces target)
     # The generated .rs files provide extern "C" publish/serialize/deserialize
     # functions. We compile them into a static library via cargo.
     if(_generated_rs_files)
-      set(_ffi_crate_dir "${CMAKE_CURRENT_BINARY_DIR}/nano_ros_cpp_ffi_${target}")
+      # Phase 123.A.7 — share the FFI crate build dir across packages
+      # when NANO_ROS_GEN_CACHE_DIR is set.
+      if(_gen_cache_root)
+        set(_ffi_crate_dir "${_gen_cache_root}/nano_ros_cpp_ffi_${target}")
+      else()
+        set(_ffi_crate_dir "${CMAKE_CURRENT_BINARY_DIR}/nano_ros_cpp_ffi_${target}")
+      endif()
       set(_ffi_crate_src "${_ffi_crate_dir}/src")
       set(_ffi_target_dir "${_ffi_crate_dir}/target")
       set(_serdes_dir "${_NANO_ROS_PREFIX}/share/nano-ros/rust/nros-serdes")
@@ -452,7 +507,7 @@ function(nros_generate_interfaces target)
       target_include_directories(${_lib_target}
         PUBLIC
           $<BUILD_INTERFACE:${_output_dir}>
-          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/${_subdir}>
+          $<BUILD_INTERFACE:${_umbrella_dir}>
           $<INSTALL_INTERFACE:include/${target}>
       )
     else()
@@ -460,7 +515,7 @@ function(nros_generate_interfaces target)
       target_include_directories(${_lib_target}
         INTERFACE
           $<BUILD_INTERFACE:${_output_dir}>
-          $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/${_subdir}>
+          $<BUILD_INTERFACE:${_umbrella_dir}>
           $<INSTALL_INTERFACE:include/${target}>
       )
     endif()
