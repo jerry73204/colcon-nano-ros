@@ -29,6 +29,5 @@ fn main() -> Result<(), nros::NodeError> {
         executor.bind_handle_to_sched_context(handle, sched_context)?;
     }
 
-    executor.spin_blocking(SpinOptions::default());
-    Ok(())
+    executor.spin_blocking(SpinOptions::default())
 }

@@ -22,9 +22,6 @@ pub fn build_generated_package(options: &BuildOptions) -> Result<GeneratedPackag
         output_dir: options.output_dir.clone(),
         plan_path: options.plan_path.clone(),
         nros_path: options.workspace_root.join("packages/core/nros"),
-        nros_cli_core_path: options
-            .workspace_root
-            .join("packages/codegen/packages/nros-cli-core"),
         nros_orchestration_path: options
             .workspace_root
             .join("packages/core/nros-orchestration"),
