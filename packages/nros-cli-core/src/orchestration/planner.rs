@@ -3,11 +3,12 @@
 use super::manifest::{ManifestArtifact, endpoint_requirements, load_manifest};
 use super::names;
 use super::params::{ParameterInputs, effective_parameters, load_toml_values};
-use super::plan::NrosPlan;
+use super::plan::{NrosPlan, PlanEntity};
+use super::schema::InterfaceRef;
 use super::workspace::{Workspace, unique_paths};
 use eyre::{Context, Result, eyre};
 use serde_json::{Map, Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -119,12 +120,212 @@ pub fn plan_system(options: PlanOptions) -> Result<PlanningOutput> {
 pub fn check_plan_file(path: &Path) -> Result<CheckReport> {
     let raw = fs::read_to_string(path)
         .wrap_err_with(|| format!("failed to read plan {}", path.display()))?;
-    let _: NrosPlan = serde_json::from_str(&raw)
+    let plan: NrosPlan = serde_json::from_str(&raw)
         .wrap_err_with(|| format!("invalid nros-plan.json schema {}", path.display()))?;
+    let errors = validate_plan(&plan);
+    if !errors.is_empty() {
+        return Err(eyre!(
+            "invalid nros-plan.json graph {}: {} error(s): {}",
+            path.display(),
+            errors.len(),
+            errors.join("; ")
+        ));
+    }
     Ok(CheckReport {
         errors: 0,
         warnings: 0,
     })
+}
+
+fn validate_plan(plan: &NrosPlan) -> Vec<String> {
+    let mut errors = Vec::new();
+    let mut component_ids = HashSet::new();
+    let mut instance_ids = HashSet::new();
+    let mut sched_context_ids = HashSet::new();
+    let mut interface_ids = HashSet::new();
+    let mut component_lookup = HashSet::new();
+    let mut sched_context_lookup = HashSet::new();
+    let mut entity_lookup = HashSet::new();
+    let mut interface_lookup = HashMap::new();
+
+    for component in &plan.components {
+        push_duplicate(
+            &mut errors,
+            "duplicate-component-id",
+            &component.id,
+            &mut component_ids,
+        );
+        component_lookup.insert(component.id.as_str());
+    }
+    for context in &plan.sched_contexts {
+        push_duplicate(
+            &mut errors,
+            "duplicate-sched-context-id",
+            &context.id,
+            &mut sched_context_ids,
+        );
+        sched_context_lookup.insert(context.id.as_str());
+    }
+    for interface in &plan.interfaces {
+        push_duplicate(
+            &mut errors,
+            "duplicate-interface-id",
+            &interface.id,
+            &mut interface_ids,
+        );
+        interface_lookup.insert(interface.id.as_str(), &interface.interface);
+    }
+
+    for instance in &plan.instances {
+        push_duplicate(
+            &mut errors,
+            "duplicate-instance-id",
+            &instance.id,
+            &mut instance_ids,
+        );
+        if !component_lookup.contains(instance.component.as_str()) {
+            errors.push(format!(
+                "missing-component-reference: instance {} references {}",
+                instance.id, instance.component
+            ));
+        }
+
+        let mut node_ids = HashSet::new();
+        let mut local_entity_ids = HashSet::new();
+        let mut callback_ids = HashSet::new();
+        for node in &instance.nodes {
+            push_duplicate(&mut errors, "duplicate-node-id", &node.id, &mut node_ids);
+            for entity in &node.entities {
+                let entity_id = plan_entity_id(entity);
+                push_duplicate(
+                    &mut errors,
+                    "duplicate-entity-id",
+                    entity_id,
+                    &mut local_entity_ids,
+                );
+                entity_lookup.insert(entity_id);
+            }
+        }
+        for callback in &instance.callbacks {
+            push_duplicate(
+                &mut errors,
+                "duplicate-callback-id",
+                &callback.id,
+                &mut callback_ids,
+            );
+            if !sched_context_lookup.contains(callback.sched_context.as_str()) {
+                errors.push(format!(
+                    "missing-sched-context: callback {} references {}",
+                    callback.id, callback.sched_context
+                ));
+            }
+        }
+        for binding in &instance.sched_bindings {
+            if !callback_ids.contains(binding.callback.as_str()) {
+                errors.push(format!(
+                    "missing-sched-callback: binding references {}",
+                    binding.callback
+                ));
+            }
+            if !sched_context_lookup.contains(binding.context.as_str()) {
+                errors.push(format!(
+                    "missing-sched-context: binding for {} references {}",
+                    binding.callback, binding.context
+                ));
+            }
+        }
+        for parameter in &instance.parameters {
+            if !node_ids.contains(parameter.node.as_str()) {
+                errors.push(format!(
+                    "missing-parameter-node: parameter {} references {}",
+                    parameter.name, parameter.node
+                ));
+            }
+        }
+    }
+
+    for interface in &plan.interfaces {
+        for entity_id in &interface.used_by {
+            if !entity_lookup.contains(entity_id.as_str()) {
+                errors.push(format!(
+                    "missing-interface-entity: interface {} references {}",
+                    interface.id, entity_id
+                ));
+            }
+        }
+    }
+    for instance in &plan.instances {
+        for node in &instance.nodes {
+            for entity in &node.entities {
+                let Some(entity_interface) = plan_entity_interface(entity) else {
+                    continue;
+                };
+                let entity_id = plan_entity_id(entity);
+                let interface_id = interface_id(entity_interface);
+                match interface_lookup.get(interface_id.as_str()) {
+                    Some(table_interface) if *table_interface == entity_interface => {}
+                    Some(_) => errors.push(format!(
+                        "interface-ref-mismatch: entity {} uses {}",
+                        entity_id, interface_id
+                    )),
+                    None => errors.push(format!(
+                        "missing-interface-ref: entity {} uses {}",
+                        entity_id, interface_id
+                    )),
+                }
+                if !plan.interfaces.iter().any(|interface| {
+                    interface.id == interface_id
+                        && interface.used_by.iter().any(|id| id == entity_id)
+                }) {
+                    errors.push(format!(
+                        "missing-interface-usage: entity {} not listed under {}",
+                        entity_id, interface_id
+                    ));
+                }
+            }
+        }
+    }
+
+    errors
+}
+
+fn push_duplicate<'a>(
+    errors: &mut Vec<String>,
+    code: &str,
+    id: &'a str,
+    seen: &mut HashSet<&'a str>,
+) {
+    if !seen.insert(id) {
+        errors.push(format!("{code}: {id}"));
+    }
+}
+
+fn plan_entity_id(entity: &PlanEntity) -> &str {
+    match entity {
+        PlanEntity::Publisher { id, .. }
+        | PlanEntity::Subscriber { id, .. }
+        | PlanEntity::Timer { id, .. }
+        | PlanEntity::ServiceServer { id, .. }
+        | PlanEntity::ServiceClient { id, .. }
+        | PlanEntity::ActionServer { id, .. }
+        | PlanEntity::ActionClient { id, .. } => id,
+    }
+}
+
+fn plan_entity_interface(entity: &PlanEntity) -> Option<&InterfaceRef> {
+    match entity {
+        PlanEntity::Publisher { interface, .. }
+        | PlanEntity::Subscriber { interface, .. }
+        | PlanEntity::ServiceServer { interface, .. }
+        | PlanEntity::ServiceClient { interface, .. }
+        | PlanEntity::ActionServer { interface, .. }
+        | PlanEntity::ActionClient { interface, .. } => Some(interface),
+        PlanEntity::Timer { .. } => None,
+    }
+}
+
+fn interface_id(interface: &InterfaceRef) -> String {
+    format!("{}/{}", interface.package, interface.name)
 }
 
 fn parse_launch_args(args: &[String]) -> Result<HashMap<String, String>> {
@@ -1395,6 +1596,98 @@ topics:
                 .get("resolved_name")
                 .is_none()
         );
+    }
+
+    #[cfg(feature = "play-launch-parser")]
+    #[test]
+    fn check_plan_rejects_missing_sched_context() {
+        let (root, mut plan) = generated_plan("nros-check-missing-sched-context");
+        plan["instances"][0]["callbacks"] = serde_json::json!([{
+            "id": "demo_pkg.talker.0/cb",
+            "source_callback": "cb",
+            "group": "default",
+            "sched_context": "missing_executor",
+            "source": {
+                "artifact": "talker.rs",
+                "line": null,
+                "column": null
+            }
+        }]);
+        let plan_path = root.join("bad-plan.json");
+        fs::write(&plan_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+
+        let err = check_plan_file(&plan_path).unwrap_err().to_string();
+        assert!(err.contains("missing-sched-context"), "{err}");
+    }
+
+    #[cfg(feature = "play-launch-parser")]
+    #[test]
+    fn check_plan_rejects_unknown_interface_entity() {
+        let (root, mut plan) = generated_plan("nros-check-missing-interface-entity");
+        plan["interfaces"][0]["used_by"] = serde_json::json!(["missing/entity"]);
+        let plan_path = root.join("bad-plan.json");
+        fs::write(&plan_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
+
+        let err = check_plan_file(&plan_path).unwrap_err().to_string();
+        assert!(err.contains("missing-interface-entity"), "{err}");
+    }
+
+    #[cfg(feature = "play-launch-parser")]
+    fn generated_plan(name: &str) -> (PathBuf, Value) {
+        let root = temp_workspace(name);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.xml"),
+            r#"<package format="3"><name>system_pkg</name><version>0.1.0</version></package>"#,
+        )
+        .unwrap();
+        let launch = root.join("system.launch.xml");
+        fs::write(
+            &launch,
+            r#"<launch>
+  <node pkg="demo_pkg" exec="talker" name="talker" />
+</launch>"#,
+        )
+        .unwrap();
+        let metadata = root.join("talker.metadata.json");
+        fs::write(
+            &metadata,
+            r#"{
+  "package": "demo_pkg",
+  "component": "talker",
+  "executable": "talker",
+  "nodes": [{
+    "id": "node_talker",
+    "unresolved_name": {"value": "talker", "kind": "relative"},
+    "publishers": [{
+      "id": "pub.chatter",
+      "unresolved_topic": {"value": "chatter", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }],
+    "subscribers": [],
+    "timers": [],
+    "services": [],
+    "actions": []
+  }]
+}"#,
+        )
+        .unwrap();
+
+        let output = plan_system(PlanOptions {
+            system_pkg: "system_pkg".to_string(),
+            workspace_root: root.clone(),
+            launch_file: launch,
+            record_file: None,
+            out_root: root.join("build/system_pkg/nros"),
+            metadata_files: vec![metadata],
+            manifest_files: vec![],
+            nros_toml_files: vec![],
+            launch_args: vec![],
+        })
+        .unwrap();
+        let plan = serde_json::from_str(&fs::read_to_string(output.plan_path).unwrap()).unwrap();
+        (root, plan)
     }
 
     #[cfg(feature = "play-launch-parser")]
