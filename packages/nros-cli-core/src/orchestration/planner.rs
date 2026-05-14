@@ -3,6 +3,7 @@
 use super::manifest::{ManifestArtifact, endpoint_requirements, load_manifest};
 use super::names;
 use super::params::{ParameterInputs, effective_parameters, load_toml_values};
+use super::plan::NrosPlan;
 use super::workspace::{Workspace, unique_paths};
 use eyre::{Context, Result, eyre};
 use serde_json::{Map, Value, json};
@@ -86,24 +87,26 @@ pub fn plan_system(options: PlanOptions) -> Result<PlanningOutput> {
         &record_path,
     ));
 
-    let plan = json!({
-        "format": "nros.plan.draft",
-        "schema_owner": "phase-126A",
-        "system_package": options.system_pkg,
-        "workspace_root": options.workspace_root,
-        "launch_file": options.launch_file,
-        "record": {
-            "path": record_path,
-            "node_count": record_array(&record, "node").len(),
-            "load_node_count": record_array(&record, "load_node").len(),
-            "container_count": record_array(&record, "container").len(),
-        },
-        "source_metadata": artifact_summaries(&metadata),
-        "launch_manifests": manifest_summaries(&manifests),
-        "manifest_requirements": endpoint_requirements(&manifests),
-        "instances": instances,
-        "diagnostics": diagnostics,
-    });
+    if diagnostics
+        .iter()
+        .any(|diag| diag.get("severity").and_then(Value::as_str) == Some("error"))
+    {
+        return Err(eyre!(
+            "planning failed with {} error(s): {}",
+            diagnostics
+                .iter()
+                .filter(|diag| diag.get("severity").and_then(Value::as_str) == Some("error"))
+                .count(),
+            diagnostics
+                .iter()
+                .filter(|diag| diag.get("severity").and_then(Value::as_str) == Some("error"))
+                .map(diagnostic_summary)
+                .collect::<Vec<_>>()
+                .join("; ")
+        ));
+    }
+
+    let plan = schema_plan_json(&options, &record_path, &instances, &metadata);
 
     let plan_path = options.out_root.join("nros-plan.json");
     fs::write(&plan_path, serde_json::to_string_pretty(&plan)?)?;
@@ -116,39 +119,12 @@ pub fn plan_system(options: PlanOptions) -> Result<PlanningOutput> {
 pub fn check_plan_file(path: &Path) -> Result<CheckReport> {
     let raw = fs::read_to_string(path)
         .wrap_err_with(|| format!("failed to read plan {}", path.display()))?;
-    let plan: Value = serde_json::from_str(&raw)
-        .wrap_err_with(|| format!("invalid plan JSON {}", path.display()))?;
-    let diagnostics = plan
-        .get("diagnostics")
-        .and_then(Value::as_array)
-        .ok_or_else(|| eyre!("{} is missing diagnostics[]", path.display()))?;
-    let errors = diagnostics
-        .iter()
-        .filter(|diag| diag.get("severity").and_then(Value::as_str) == Some("error"))
-        .count();
-    let warnings = diagnostics
-        .iter()
-        .filter(|diag| diag.get("severity").and_then(Value::as_str) == Some("warning"))
-        .count();
-    if errors > 0 {
-        let details = diagnostics
-            .iter()
-            .filter(|diag| diag.get("severity").and_then(Value::as_str) == Some("error"))
-            .map(|diag| {
-                let code = diag.get("code").and_then(Value::as_str).unwrap_or("error");
-                let message = diag.get("message").and_then(Value::as_str).unwrap_or("");
-                format!("{code}: {message}")
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        return Err(eyre!(
-            "nros check failed for {} with {} error(s):\n{}",
-            path.display(),
-            errors,
-            details
-        ));
-    }
-    Ok(CheckReport { errors, warnings })
+    let _: NrosPlan = serde_json::from_str(&raw)
+        .wrap_err_with(|| format!("invalid nros-plan.json schema {}", path.display()))?;
+    Ok(CheckReport {
+        errors: 0,
+        warnings: 0,
+    })
 }
 
 fn parse_launch_args(args: &[String]) -> Result<HashMap<String, String>> {
@@ -259,6 +235,308 @@ fn preserve_metadata(metadata: &[JsonArtifact], metadata_dir: &Path) -> Result<(
         }
     }
     Ok(())
+}
+
+fn schema_plan_json(
+    options: &PlanOptions,
+    record_path: &Path,
+    instances: &[Value],
+    metadata: &[JsonArtifact],
+) -> Value {
+    let components = schema_components(metadata);
+    let plan_instances = instances.iter().map(schema_instance).collect::<Vec<_>>();
+    let interfaces = schema_interfaces(&plan_instances);
+    json!({
+        "version": 1,
+        "system": options.system_pkg,
+        "trace": {
+            "system_config": options.nros_toml_files.first().map(|p| p.display().to_string()).unwrap_or_else(|| "nros.toml".to_string()),
+            "launch_record": record_path.display().to_string(),
+            "generated_by": "nros plan",
+        },
+        "components": components,
+        "instances": plan_instances,
+        "interfaces": interfaces,
+        "sched_contexts": [{
+            "id": "default_executor",
+            "executor": "single_threaded",
+            "class": "best_effort",
+            "priority": null,
+            "period_ms": null,
+            "budget_ms": null,
+            "deadline_ms": null,
+            "deadline_policy": "ignore",
+            "stack_size": null,
+            "core": null,
+            "task": null,
+        }],
+        "build": {
+            "target": "x86_64-unknown-linux-gnu",
+            "board": "native",
+            "rmw": "zenoh",
+            "profile": "debug",
+            "features": [],
+            "cfg": {},
+        },
+    })
+}
+
+fn schema_components(metadata: &[JsonArtifact]) -> Vec<Value> {
+    metadata
+        .iter()
+        .map(|artifact| {
+            let package = string_field(&artifact.value, &["package"]).unwrap_or("unknown");
+            let component =
+                string_field(&artifact.value, &["component", "executable"]).unwrap_or("unknown");
+            let language = string_field(&artifact.value, &["language"]).unwrap_or("rust");
+            json!({
+                "id": format!("{package}::{component}"),
+                "package": package,
+                "component": component,
+                "language": language,
+                "source_metadata": artifact.path.display().to_string(),
+                "component_config": null,
+            })
+        })
+        .collect()
+}
+
+fn schema_instance(instance: &Value) -> Value {
+    let id = instance
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or("instance");
+    let package = instance
+        .get("package")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let executable = instance
+        .get("executable")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let namespace = instance
+        .get("namespace")
+        .and_then(Value::as_str)
+        .unwrap_or("/");
+    let launch_name = instance
+        .get("node_name")
+        .and_then(Value::as_str)
+        .unwrap_or(executable);
+    let entities = instance
+        .get("entities")
+        .and_then(Value::as_array)
+        .map(|entities| {
+            entities
+                .iter()
+                .filter_map(|entity| schema_entity(id, entity))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    json!({
+        "id": id,
+        "component": format!("{package}::{executable}"),
+        "package": package,
+        "executable": executable,
+        "launch_name": launch_name,
+        "namespace": namespace,
+        "remaps": schema_remaps(instance.get("remaps")),
+        "nodes": [{
+            "id": format!("{id}/node"),
+            "source_node": "node",
+            "resolved_name": launch_name,
+            "namespace": namespace,
+            "entities": entities,
+        }],
+        "callbacks": [],
+        "parameters": schema_parameters(id, instance.get("parameters")),
+        "sched_bindings": [],
+        "trace": {
+            "launch_record_entity": format!("record://{id}"),
+            "source_metadata": instance.get("source_metadata").and_then(Value::as_str).unwrap_or(""),
+        },
+    })
+}
+
+fn schema_remaps(value: Option<&Value>) -> Vec<Value> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Value::Array(pair) if pair.len() == 2 => Some(json!({
+                "from": pair[0].as_str().unwrap_or_default(),
+                "to": pair[1].as_str().unwrap_or_default(),
+            })),
+            _ => None,
+        })
+        .collect()
+}
+
+fn schema_entity(instance_id: &str, entity: &Value) -> Option<Value> {
+    let role = entity.get("role").and_then(Value::as_str)?;
+    let source_entity = entity
+        .get("source_id")
+        .and_then(Value::as_str)
+        .unwrap_or("entity");
+    let id = format!("{instance_id}/{source_entity}");
+    let trace = json!({
+        "source_artifact": {
+            "artifact": entity.get("source_artifact").and_then(Value::as_str).unwrap_or("source-metadata.json"),
+            "line": null,
+            "column": null,
+        },
+        "manifest_endpoint": null,
+    });
+    match role {
+        "publisher" | "subscriber" => Some(json!({
+            "role": role,
+            "id": id,
+            "source_entity": source_entity,
+            "resolved_name": entity.get("resolved_name").and_then(Value::as_str).unwrap_or(""),
+            "interface": schema_interface(entity.get("type"))?,
+            "qos": schema_qos(entity.get("qos")),
+            "trace": trace,
+        })),
+        "timer" => Some(json!({
+            "role": "timer",
+            "id": id,
+            "source_entity": source_entity,
+            "period_ms": entity.get("period_ms").and_then(Value::as_u64).unwrap_or(0),
+            "trace": trace,
+        })),
+        "service_server" | "service_client" | "action_server" | "action_client" => Some(json!({
+            "role": role,
+            "id": id,
+            "source_entity": source_entity,
+            "resolved_name": entity.get("resolved_name").and_then(Value::as_str).unwrap_or(""),
+            "interface": schema_interface(entity.get("type"))?,
+            "qos": null,
+            "trace": trace,
+        })),
+        _ => None,
+    }
+}
+
+fn schema_interface(value: Option<&Value>) -> Option<Value> {
+    match value? {
+        Value::Object(map) => Some(json!({
+            "package": map.get("package").and_then(Value::as_str).unwrap_or(""),
+            "name": map.get("name").and_then(Value::as_str).unwrap_or(""),
+            "kind": map.get("kind").and_then(Value::as_str).unwrap_or("message"),
+        })),
+        Value::String(raw) => {
+            let (package, name) = raw.split_once('/').unwrap_or(("", raw));
+            Some(json!({
+                "package": package,
+                "name": name,
+                "kind": if name.starts_with("srv/") {
+                    "service"
+                } else if name.starts_with("action/") {
+                    "action"
+                } else {
+                    "message"
+                },
+            }))
+        }
+        _ => None,
+    }
+}
+
+fn schema_qos(value: Option<&Value>) -> Value {
+    if let Some(value) = value.filter(|value| !value.is_null()) {
+        return value.clone();
+    }
+    json!({
+        "reliability": "system_default",
+        "durability": "system_default",
+        "history": "system_default",
+        "depth": 0,
+        "deadline_ms": null,
+        "lifespan_ms": null,
+        "liveliness": "system_default",
+        "liveliness_lease_duration_ms": null,
+        "extensions": {},
+    })
+}
+
+fn schema_parameters(instance_id: &str, value: Option<&Value>) -> Vec<Value> {
+    let Some(Value::Object(map)) = value else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter(|(name, _)| name.as_str() != "parameter_files")
+        .map(|(name, value)| {
+            json!({
+                "node": format!("{instance_id}/node"),
+                "name": name,
+                "value": schema_parameter_value(value),
+                "source": {
+                    "kind": "launch",
+                    "artifact": "launch",
+                },
+            })
+        })
+        .collect()
+}
+
+fn schema_parameter_value(value: &Value) -> Value {
+    match value {
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => value.clone(),
+        Value::Array(items) => {
+            if items.iter().all(Value::is_boolean)
+                || items.iter().all(|v| v.as_i64().is_some())
+                || items.iter().all(|v| v.as_f64().is_some())
+                || items.iter().all(Value::is_string)
+            {
+                value.clone()
+            } else {
+                Value::String(value.to_string())
+            }
+        }
+        _ => Value::String(value.to_string()),
+    }
+}
+
+fn schema_interfaces(instances: &[Value]) -> Vec<Value> {
+    let mut used: std::collections::BTreeMap<String, (Value, Vec<String>)> =
+        std::collections::BTreeMap::new();
+    for entity in instances
+        .iter()
+        .flat_map(|instance| instance.get("nodes").and_then(Value::as_array))
+        .flatten()
+        .flat_map(|node| node.get("entities").and_then(Value::as_array))
+        .flatten()
+    {
+        let Some(interface) = entity.get("interface") else {
+            continue;
+        };
+        let package = interface
+            .get("package")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let name = interface.get("name").and_then(Value::as_str).unwrap_or("");
+        let key = format!("{package}/{name}");
+        used.entry(key)
+            .or_insert_with(|| (interface.clone(), Vec::new()))
+            .1
+            .push(
+                entity
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            );
+    }
+    used.into_iter()
+        .map(|(id, (interface, used_by))| {
+            json!({
+                "id": id,
+                "interface": interface,
+                "used_by": used_by,
+            })
+        })
+        .collect()
 }
 
 fn build_instances(
@@ -875,20 +1153,6 @@ fn next_instance_index(
     index
 }
 
-fn artifact_summaries(artifacts: &[JsonArtifact]) -> Vec<Value> {
-    artifacts
-        .iter()
-        .map(|artifact| json!({"path": artifact.path, "package": string_field(&artifact.value, &["package", "package_name"]), "executable": string_field(&artifact.value, &["executable", "executable_name", "component"])}))
-        .collect()
-}
-
-fn manifest_summaries(manifests: &[ManifestArtifact]) -> Vec<Value> {
-    manifests
-        .iter()
-        .map(|artifact| json!({"path": artifact.path, "version": artifact.value.get("version")}))
-        .collect()
-}
-
 fn artifact_list(artifacts: &[JsonArtifact]) -> String {
     artifacts
         .iter()
@@ -924,6 +1188,16 @@ fn diagnostic(
         object.insert("entity".to_string(), Value::String(entity.to_string()));
     }
     Value::Object(object)
+}
+
+fn diagnostic_summary(diag: &Value) -> String {
+    let code = diag.get("code").and_then(Value::as_str).unwrap_or("error");
+    let message = diag.get("message").and_then(Value::as_str).unwrap_or("");
+    let artifact = diag
+        .get("source_artifact")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    format!("{code}: {message} ({artifact})")
 }
 
 fn normalize_role(role: &str) -> String {
@@ -1030,8 +1304,8 @@ mod tests {
         .unwrap();
         let plan: Value =
             serde_json::from_str(&fs::read_to_string(output.plan_path).unwrap()).unwrap();
+        serde_json::from_value::<NrosPlan>(plan.clone()).unwrap();
         let instances = plan["instances"].as_array().unwrap();
-        assert_eq!(plan["record"]["node_count"], 2);
         assert_eq!(instances.len(), 2);
         assert_eq!(instances[0]["id"], "demo_pkg.talker.0");
         assert_eq!(instances[1]["id"], "demo_pkg.talker.1");
@@ -1107,24 +1381,19 @@ topics:
         .unwrap();
         let plan: Value =
             serde_json::from_str(&fs::read_to_string(output.plan_path).unwrap()).unwrap();
+        serde_json::from_value::<NrosPlan>(plan.clone()).unwrap();
         assert_eq!(
-            plan["instances"][0]["entities"][0]["resolved_name"],
+            plan["instances"][0]["nodes"][0]["entities"][0]["resolved_name"],
             "/mux/cmd"
         );
         assert_eq!(
-            plan["instances"][0]["entities"][0]["source_name_kind"],
-            "private"
+            plan["instances"][0]["nodes"][0]["entities"][1]["role"],
+            "timer"
         );
-        assert_eq!(plan["instances"][0]["entities"][1]["role"], "timer");
-        assert!(plan["instances"][0]["entities"][1]["resolved_name"].is_null());
         assert!(
-            plan["diagnostics"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|diag| diag["severity"] != "error"),
-            "unexpected diagnostics: {}",
-            plan["diagnostics"]
+            plan["instances"][0]["nodes"][0]["entities"][1]
+                .get("resolved_name")
+                .is_none()
         );
     }
 
