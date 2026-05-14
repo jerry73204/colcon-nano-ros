@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     NrosPlan,
-    plan::PlanSchedContext,
+    plan::{PlanBuildOptions, PlanSchedContext},
     schema::{DeadlinePolicy, ParameterValue, SchedClass},
 };
 
@@ -43,8 +43,9 @@ pub fn generate_package(options: &GenerateOptions) -> Result<GeneratedPackage> {
         )
     })?;
 
-    let cargo_toml = render_cargo_toml(options);
-    let build_rs = render_build_rs(options);
+    let plan = load_plan(&options.plan_path)?;
+    let cargo_toml = render_cargo_toml(options, &plan);
+    let build_rs = render_build_rs(options, &plan);
 
     write_if_changed(&options.output_dir.join("Cargo.toml"), &cargo_toml)?;
     write_if_changed(&options.output_dir.join("build.rs"), &build_rs)?;
@@ -57,9 +58,13 @@ pub fn generate_package(options: &GenerateOptions) -> Result<GeneratedPackage> {
     })
 }
 
-fn render_cargo_toml(options: &GenerateOptions) -> String {
+fn render_cargo_toml(options: &GenerateOptions, plan: &NrosPlan) -> String {
     CARGO_TEMPLATE
         .replace("{{ package_name }}", &options.package_name)
+        .replace(
+            "{{ default_features }}",
+            &toml_string_array(&generated_default_features(&plan.build)),
+        )
         .replace("{{ nros_path }}", &path_for_template(&options.nros_path))
         .replace(
             "{{ nros_orchestration_path }}",
@@ -67,8 +72,7 @@ fn render_cargo_toml(options: &GenerateOptions) -> String {
         )
 }
 
-fn render_build_rs(options: &GenerateOptions) -> String {
-    let plan = load_plan(&options.plan_path).expect("load nros-plan.json for generated package");
+fn render_build_rs(options: &GenerateOptions, plan: &NrosPlan) -> String {
     let generated_tables = render_generated_tables(&plan);
     BUILD_TEMPLATE
         .replace("{{ plan_path }}", &path_for_template(&options.plan_path))
@@ -95,6 +99,103 @@ fn load_plan(path: &Path) -> Result<NrosPlan> {
     let raw =
         fs::read_to_string(path).wrap_err_with(|| format!("failed to read {}", path.display()))?;
     serde_json::from_str(&raw).wrap_err_with(|| format!("failed to parse {}", path.display()))
+}
+
+fn generated_default_features(build: &PlanBuildOptions) -> Vec<String> {
+    let mut features = Vec::new();
+    if uses_std(build) {
+        features.push("std".to_string());
+    }
+    if let Some(platform) = platform_feature(&build.board, &build.target) {
+        features.push(format!("nros/{platform}"));
+    }
+    if uses_rmw_cffi(&build.rmw) {
+        features.push("nros/rmw-cffi".to_string());
+        features.push("nros-orchestration/rmw-cffi".to_string());
+        if let Some(rmw) = rmw_backend_feature(&build.rmw) {
+            features.push(format!("nros/{rmw}"));
+        }
+    }
+    for feature in build
+        .features
+        .iter()
+        .filter_map(|feature| generated_feature(feature))
+    {
+        features.push(feature);
+    }
+    dedup(features)
+}
+
+fn uses_std(build: &PlanBuildOptions) -> bool {
+    matches!(build.board.as_str(), "native" | "posix")
+        || build.target.contains("linux")
+        || build.target.contains("darwin")
+        || build.target.contains("apple")
+        || build.target.contains("windows")
+        || build.target.contains("freebsd")
+}
+
+fn platform_feature(board: &str, target: &str) -> Option<&'static str> {
+    match board {
+        "native" | "posix" => Some("platform-posix"),
+        "zephyr" => Some("platform-zephyr"),
+        "freertos" | "freeRTOS" | "FreeRTOS" => Some("platform-freertos"),
+        "nuttx" | "NuttX" => Some("platform-nuttx"),
+        "threadx" | "ThreadX" => Some("platform-threadx"),
+        "baremetal" | "bare-metal" => Some("platform-bare-metal"),
+        "orin-spe" => Some("platform-orin-spe"),
+        _ if target.contains("linux") => Some("platform-posix"),
+        _ => None,
+    }
+}
+
+fn generated_feature(feature: &str) -> Option<String> {
+    match feature {
+        "std" => Some("std".to_string()),
+        "rmw-cffi" => Some("nros/rmw-cffi".to_string()),
+        "rmw-zenoh" | "rmw-zenoh-cffi" => Some("nros/rmw-zenoh-cffi".to_string()),
+        "rmw-xrce" | "rmw-xrce-cffi" => Some("nros/rmw-xrce-cffi".to_string()),
+        "rmw-dds" | "rmw-dds-cffi" => Some("nros/rmw-dds-cffi".to_string()),
+        feature if feature.starts_with("nros/") || feature.starts_with("nros-orchestration/") => {
+            Some(feature.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn uses_rmw_cffi(rmw: &str) -> bool {
+    !matches!(rmw, "" | "none")
+}
+
+fn rmw_backend_feature(rmw: &str) -> Option<&'static str> {
+    match rmw {
+        "zenoh" | "rmw-zenoh" | "rmw-zenoh-cffi" => Some("rmw-zenoh-cffi"),
+        "xrce" | "rmw-xrce" | "rmw-xrce-cffi" => Some("rmw-xrce-cffi"),
+        "dds" | "rmw-dds" | "rmw-dds-cffi" => Some("rmw-dds-cffi"),
+        "cffi" | "rmw-cffi" => None,
+        "" | "none" => None,
+        _ => None,
+    }
+}
+
+fn dedup(features: Vec<String>) -> Vec<String> {
+    features
+        .into_iter()
+        .fold(Vec::new(), |mut deduped, feature| {
+            if !deduped.contains(&feature) {
+                deduped.push(feature);
+            }
+            deduped
+        })
+}
+
+fn toml_string_array(values: &[String]) -> String {
+    let entries = values
+        .iter()
+        .map(|value| format!("{:?}", value))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{entries}]")
 }
 
 fn render_generated_tables(plan: &NrosPlan) -> String {

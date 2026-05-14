@@ -21,15 +21,19 @@ fn temp_output(name: &str) -> PathBuf {
 
 fn generate_fixture(name: &str, plan_fixture: &str) -> PathBuf {
     let output_dir = temp_output(name);
+    generate_plan(name, fixture(plan_fixture), output_dir.clone());
+    output_dir
+}
+
+fn generate_plan(name: &str, plan_path: PathBuf, output_dir: PathBuf) {
     generate_package(&GenerateOptions {
         package_name: "nros-generated-test".to_string(),
-        output_dir: output_dir.clone(),
-        plan_path: fixture(plan_fixture),
+        output_dir,
+        plan_path,
         nros_path: PathBuf::from("/workspace/packages/core/nros"),
         nros_orchestration_path: PathBuf::from("/workspace/packages/core/nros-orchestration"),
     })
-    .expect("generated package writes");
-    output_dir
+    .unwrap_or_else(|error| panic!("{name} generated package writes: {error:?}"));
 }
 
 #[test]
@@ -38,6 +42,9 @@ fn generated_package_writes_manifest_build_script_and_main() {
 
     let cargo_toml = fs::read_to_string(output_dir.join("Cargo.toml")).expect("read Cargo.toml");
     assert!(cargo_toml.contains("name = \"nros-generated-test\""));
+    assert!(cargo_toml.contains(
+        "default = [\"std\", \"nros/platform-posix\", \"nros/rmw-cffi\", \"nros-orchestration/rmw-cffi\", \"nros/rmw-zenoh-cffi\"]"
+    ));
     assert!(cargo_toml.contains("nros = { path = \"/workspace/packages/core/nros\""));
     assert!(
         cargo_toml.contains(
@@ -71,6 +78,36 @@ fn generated_package_writes_manifest_build_script_and_main() {
     assert!(main_rs.contains("instantiate_components"));
     assert!(main_rs.contains("bind_handle_to_sched_context"));
     assert!(main_rs.contains("spin_blocking(SpinOptions::default())"));
+}
+
+#[test]
+fn generated_package_features_follow_rtos_plan() {
+    let root = temp_output("generated_package_features_follow_rtos_plan");
+    fs::create_dir_all(&root).expect("create temp plan dir");
+    let plan_path = root.join("nros-plan.json");
+    let plan = include_str!("fixtures/orchestration/plan_pub_sub.json")
+        .replace(
+            "\"target\": \"x86_64-unknown-linux-gnu\"",
+            "\"target\": \"thumbv7em-none-eabihf\"",
+        )
+        .replace("\"board\": \"native\"", "\"board\": \"zephyr\"")
+        .replace("\"rmw\": \"zenoh\"", "\"rmw\": \"xrce\"")
+        .replace("\"rmw-zenoh\"", "\"rmw-xrce\"");
+    fs::write(&plan_path, plan).expect("write RTOS plan");
+
+    let output_dir = root.join("generated");
+    generate_plan(
+        "generated_package_features_follow_rtos_plan",
+        plan_path,
+        output_dir.clone(),
+    );
+    let cargo_toml = fs::read_to_string(output_dir.join("Cargo.toml")).expect("read Cargo.toml");
+
+    assert!(cargo_toml.contains(
+        "default = [\"nros/platform-zephyr\", \"nros/rmw-cffi\", \"nros-orchestration/rmw-cffi\", \"nros/rmw-xrce-cffi\"]"
+    ));
+    assert!(!cargo_toml.contains("\"std\""));
+    assert!(!cargo_toml.contains("platform-posix"));
 }
 
 #[test]
