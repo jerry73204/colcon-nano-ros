@@ -924,6 +924,14 @@ fn build_node_instance(
     let callbacks = source_metadata
         .map(|artifact| source_callbacks(&artifact.value))
         .unwrap_or_default();
+    if let Some(artifact) = source_metadata {
+        diagnostics.extend(check_source_metadata_links(
+            &artifact.value,
+            &artifact.path,
+            package,
+            &instance_id,
+        ));
+    }
 
     json!({
         "id": instance_id,
@@ -939,6 +947,148 @@ fn build_node_instance(
         "entities": entities,
         "callbacks": callbacks,
     })
+}
+
+fn check_source_metadata_links(
+    metadata: &Value,
+    path: &Path,
+    package: &str,
+    instance_id: &str,
+) -> Vec<Value> {
+    let entity_ids = source_entity_ids(metadata);
+    let callback_ids = source_callback_ids(metadata);
+    let mut diagnostics = Vec::new();
+
+    if let Some(callbacks) = metadata.get("callbacks").and_then(Value::as_array) {
+        for callback in callbacks {
+            let callback_id = callback.get("id").and_then(Value::as_str).unwrap_or("");
+            let Some(effects) = callback.get("effects").and_then(Value::as_array) else {
+                continue;
+            };
+            for effect in effects {
+                let entity_id = effect.get("entity").and_then(Value::as_str).unwrap_or("");
+                if !entity_id.is_empty() && !entity_ids.contains(entity_id) {
+                    diagnostics.push(diagnostic(
+                        "error",
+                        "callback-effect-unknown-entity",
+                        format!(
+                            "callback {callback_id} effect references unknown entity {entity_id}"
+                        ),
+                        Some(package),
+                        Some(instance_id),
+                        Some(entity_id),
+                        path,
+                    ));
+                }
+            }
+        }
+    }
+
+    for (entity_id, callback_id) in source_entity_callback_refs(metadata) {
+        if !callback_id.is_empty() && !callback_ids.contains(callback_id.as_str()) {
+            diagnostics.push(diagnostic(
+                "error",
+                "entity-callback-missing",
+                format!("entity {entity_id} references missing callback {callback_id}"),
+                Some(package),
+                Some(instance_id),
+                Some(&entity_id),
+                path,
+            ));
+        }
+    }
+
+    diagnostics
+}
+
+fn source_entity_ids(metadata: &Value) -> HashSet<&str> {
+    let mut ids = HashSet::new();
+    collect_source_entity_ids(metadata.get("entities"), &mut ids);
+    collect_source_entity_ids(metadata.get("publishers"), &mut ids);
+    collect_source_entity_ids(metadata.get("subscriptions"), &mut ids);
+    collect_source_entity_ids(metadata.get("subscribers"), &mut ids);
+    collect_source_entity_ids(metadata.get("services"), &mut ids);
+    collect_source_entity_ids(metadata.get("clients"), &mut ids);
+    collect_source_entity_ids(metadata.get("actions"), &mut ids);
+    collect_source_entity_ids(metadata.get("parameters"), &mut ids);
+    if let Some(nodes) = metadata.get("nodes").and_then(Value::as_array) {
+        for node in nodes {
+            collect_source_entity_ids(node.get("publishers"), &mut ids);
+            collect_source_entity_ids(node.get("subscribers"), &mut ids);
+            collect_source_entity_ids(node.get("timers"), &mut ids);
+            collect_source_entity_ids(node.get("services"), &mut ids);
+            collect_source_entity_ids(node.get("actions"), &mut ids);
+            collect_source_entity_ids(node.get("parameters"), &mut ids);
+        }
+    }
+    ids
+}
+
+fn collect_source_entity_ids<'a>(value: Option<&'a Value>, ids: &mut HashSet<&'a str>) {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return;
+    };
+    for item in items {
+        if let Some(id) = item
+            .get("id")
+            .or_else(|| item.get("entity"))
+            .and_then(Value::as_str)
+        {
+            ids.insert(id);
+        }
+    }
+}
+
+fn source_callback_ids(metadata: &Value) -> HashSet<&str> {
+    metadata
+        .get("callbacks")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|callback| callback.get("id").and_then(Value::as_str))
+        .collect()
+}
+
+fn source_entity_callback_refs(metadata: &Value) -> Vec<(String, String)> {
+    let mut refs = Vec::new();
+    collect_source_entity_callback_refs(metadata.get("entities"), &mut refs);
+    collect_source_entity_callback_refs(metadata.get("subscriptions"), &mut refs);
+    collect_source_entity_callback_refs(metadata.get("subscribers"), &mut refs);
+    collect_source_entity_callback_refs(metadata.get("services"), &mut refs);
+    collect_source_entity_callback_refs(metadata.get("actions"), &mut refs);
+    if let Some(nodes) = metadata.get("nodes").and_then(Value::as_array) {
+        for node in nodes {
+            collect_source_entity_callback_refs(node.get("subscribers"), &mut refs);
+            collect_source_entity_callback_refs(node.get("timers"), &mut refs);
+            collect_source_entity_callback_refs(node.get("services"), &mut refs);
+            collect_source_entity_callback_refs(node.get("actions"), &mut refs);
+        }
+    }
+    refs
+}
+
+fn collect_source_entity_callback_refs(value: Option<&Value>, refs: &mut Vec<(String, String)>) {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return;
+    };
+    for item in items {
+        let entity_id = item
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        for key in [
+            "callback",
+            "goal_callback",
+            "cancel_callback",
+            "accepted_callback",
+        ] {
+            let Some(callback_id) = item.get(key).and_then(Value::as_str) else {
+                continue;
+            };
+            refs.push((entity_id.clone(), callback_id.to_string()));
+        }
+    }
 }
 
 fn source_callbacks(metadata: &Value) -> Vec<Value> {
@@ -1610,7 +1760,16 @@ mod tests {
     "timers": [{"id": "timer.poll", "period_ms": 100, "callback": "cb.poll"}],
     "services": [],
     "actions": []
-  }]
+  }],
+  "callbacks": [{
+    "id": "cb.poll",
+    "kind": "timer",
+    "group": null,
+    "effects": [],
+    "source": {"artifact": "src/driver.rs", "line": null, "column": null}
+  }],
+  "parameters": [],
+  "trace": {"generator": "test", "package_manifest": "package.xml", "source_artifacts": ["src/driver.rs"]}
 }"#,
         )
         .unwrap();
@@ -1823,6 +1982,122 @@ topics:
             .find(|parameter| parameter["name"] == name)
             .unwrap_or_else(|| panic!("missing parameter {name}"));
         assert_eq!(parameter["value"], expected);
+    }
+
+    #[test]
+    fn plan_system_rejects_unknown_callback_effect_entity() {
+        let root = temp_workspace("nros-plan-bad-callback-effect");
+        let err = plan_with_metadata(
+            &root,
+            r#"{
+  "version": 1,
+  "package": "demo_pkg",
+  "component": "talker",
+  "language": "rust",
+  "executable": "talker",
+  "exported_symbol": null,
+  "nodes": [{
+    "id": "node_talker",
+    "unresolved_name": {"value": "talker", "kind": "relative"},
+    "namespace": null,
+    "publishers": [{
+      "id": "pub_chatter",
+      "unresolved_topic": {"value": "chatter", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }],
+    "subscribers": [],
+    "timers": [],
+    "services": [],
+    "actions": []
+  }],
+  "callbacks": [{
+    "id": "cb_timer",
+    "kind": "timer",
+    "group": null,
+    "effects": [{"kind": "publishes", "entity": "missing_pub"}],
+    "source": {"artifact": "src/talker.rs", "line": 42, "column": 5}
+  }],
+  "parameters": [],
+  "trace": {"generator": "nros-metadata-rust", "package_manifest": "package.xml", "source_artifacts": ["src/talker.rs"]}
+}"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("callback-effect-unknown-entity"), "{err}");
+        assert!(err.contains("missing_pub"), "{err}");
+    }
+
+    #[test]
+    fn plan_system_rejects_missing_entity_callback() {
+        let root = temp_workspace("nros-plan-missing-entity-callback");
+        let err = plan_with_metadata(
+            &root,
+            r#"{
+  "version": 1,
+  "package": "demo_pkg",
+  "component": "talker",
+  "language": "rust",
+  "executable": "talker",
+  "exported_symbol": null,
+  "nodes": [{
+    "id": "node_talker",
+    "unresolved_name": {"value": "talker", "kind": "relative"},
+    "namespace": null,
+    "publishers": [],
+    "subscribers": [{
+      "id": "sub_cmd",
+      "unresolved_topic": {"value": "cmd", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null,
+      "callback": "cb_missing"
+    }],
+    "timers": [],
+    "services": [],
+    "actions": []
+  }],
+  "callbacks": [],
+  "parameters": [],
+  "trace": {"generator": "nros-metadata-rust", "package_manifest": "package.xml", "source_artifacts": ["src/talker.rs"]}
+}"#,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("entity-callback-missing"), "{err}");
+        assert!(err.contains("cb_missing"), "{err}");
+    }
+
+    fn plan_with_metadata(root: &Path, metadata_json: &str) -> Result<PlanningOutput> {
+        fs::create_dir_all(root).unwrap();
+        fs::write(
+            root.join("package.xml"),
+            r#"<package format="3"><name>system_pkg</name><version>0.1.0</version></package>"#,
+        )
+        .unwrap();
+        let launch = root.join("system.launch.xml");
+        fs::write(&launch, "<launch />").unwrap();
+        let record = root.join("record.json");
+        fs::write(
+            &record,
+            r#"{"node":[{"package":"demo_pkg","executable":"talker","name":"talker"}]}"#,
+        )
+        .unwrap();
+        let metadata = root.join("talker.metadata.json");
+        fs::write(&metadata, metadata_json).unwrap();
+
+        plan_system(PlanOptions {
+            system_pkg: "system_pkg".to_string(),
+            workspace_root: root.to_path_buf(),
+            launch_file: launch,
+            record_file: Some(record),
+            out_root: root.join("build/system_pkg/nros"),
+            metadata_files: vec![metadata],
+            manifest_files: vec![],
+            nros_toml_files: vec![],
+            launch_args: vec![],
+        })
     }
 
     #[cfg(feature = "play-launch-parser")]
