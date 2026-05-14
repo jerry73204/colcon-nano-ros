@@ -1,0 +1,34 @@
+mod nros_generated {
+    include!(concat!(env!("OUT_DIR"), "/nros_generated.rs"));
+}
+
+use nros::prelude::*;
+use nros_orchestration::CallbackHandleTable;
+
+fn main() -> Result<(), nros::NodeError> {
+    let config = ExecutorConfig::from_env().node_name(nros_generated::SYSTEM.default_node_name());
+    let mut executor = Executor::open(&config)?;
+    let mut callback_handles = CallbackHandleTable::<{ nros_generated::CALLBACK_COUNT }>::new();
+
+    let mut sched_context_ids =
+        [executor.default_sched_context_id(); nros_generated::SCHED_CONTEXT_COUNT + 1];
+    for (index, spec) in nros_generated::SCHED_CONTEXTS.iter().copied().enumerate() {
+        sched_context_ids[index + 1] = executor.create_sched_context(spec.to_nros_node())?;
+    }
+
+    nros_generated::instantiate_components(&mut executor, &mut callback_handles)?;
+
+    for binding in nros_generated::CALLBACK_BINDINGS.iter().copied() {
+        let handle = callback_handles
+            .get(binding.callback_index)
+            .ok_or(nros::NodeError::NotInitialized)?;
+        let sched_context = sched_context_ids
+            .get(binding.sched_context_index)
+            .copied()
+            .ok_or(nros::NodeError::InvalidSchedContextBinding)?;
+        executor.bind_handle_to_sched_context(handle, sched_context)?;
+    }
+
+    executor.spin_blocking(SpinOptions::default());
+    Ok(())
+}

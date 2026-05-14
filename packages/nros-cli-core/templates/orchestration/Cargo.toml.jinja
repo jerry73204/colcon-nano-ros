@@ -1,0 +1,16 @@
+[package]
+name = "{{ package_name }}"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["std", "nros/platform-posix", "nros/rmw-cffi", "nros-orchestration/rmw-cffi"]
+std = ["nros/std", "nros-orchestration/std"]
+
+[dependencies]
+nros = { path = "{{ nros_path }}", default-features = false }
+nros-orchestration = { path = "{{ nros_orchestration_path }}", default-features = false }
+
+[build-dependencies]
+serde_json = "1"

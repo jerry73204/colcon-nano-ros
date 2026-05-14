@@ -12,6 +12,7 @@
 //! cmake path. Heuristic: if `[lib].crate-type` in Cargo.toml contains
 //! `staticlib` AND CMakeLists.txt exists, prefer cmake.
 
+use crate::orchestration;
 use clap::Args as ClapArgs;
 use eyre::{Result, WrapErr, eyre};
 use std::fs;
@@ -24,6 +25,30 @@ pub struct Args {
     #[arg(long)]
     pub project: Option<PathBuf>,
 
+    /// Build a generated nano-ros system package from this nros-plan.json
+    #[arg(long)]
+    pub system_plan: Option<PathBuf>,
+
+    /// Output dir for the generated package (default: <project>/build/<package>/nros/generated)
+    #[arg(long)]
+    pub system_output: Option<PathBuf>,
+
+    /// Generated package name for system mode
+    #[arg(long)]
+    pub system_package: Option<String>,
+
+    /// nano-ros workspace root for generated path dependencies
+    #[arg(long)]
+    pub nano_ros_workspace: Option<PathBuf>,
+
+    /// Build generated system package in release mode
+    #[arg(long)]
+    pub release: bool,
+
+    /// Cargo target triple for generated system package
+    #[arg(long)]
+    pub target: Option<String>,
+
     /// Trailing arguments forwarded verbatim to the underlying tool
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
     pub passthrough: Vec<String>,
@@ -34,6 +59,28 @@ pub fn run(args: Args) -> Result<()> {
         Some(p) => p,
         None => std::env::current_dir()?,
     };
+    if let Some(plan_path) = args.system_plan {
+        let package_name = args
+            .system_package
+            .unwrap_or_else(|| infer_package_name(&root));
+        let output_dir = args.system_output.unwrap_or_else(|| {
+            root.join("build")
+                .join(&package_name)
+                .join("nros/generated")
+        });
+        let workspace_root = args.nano_ros_workspace.unwrap_or_else(|| root.clone());
+        orchestration::build::build_generated_package(&orchestration::build::BuildOptions {
+            package_name,
+            output_dir,
+            plan_path,
+            workspace_root,
+            release: args.release,
+            target: args.target,
+            cargo_args: args.passthrough,
+        })?;
+        return Ok(());
+    }
+
     let flavor = detect_flavor(&root)?;
     eprintln!("nros build: flavor = {flavor:?} ({})", root.display());
 
@@ -80,12 +127,29 @@ pub fn run(args: Args) -> Result<()> {
         .status()
         .wrap_err_with(|| format!("failed to invoke build for {flavor:?}"))?;
     if !status.success() {
-        return Err(eyre!(
-            "build failed (exit {})",
-            status.code().unwrap_or(-1)
-        ));
+        return Err(eyre!("build failed (exit {})", status.code().unwrap_or(-1)));
     }
     Ok(())
+}
+
+fn infer_package_name(root: &Path) -> String {
+    root.file_name()
+        .and_then(|name| name.to_str())
+        .map(sanitize_package_name)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "nros-system".to_string())
+}
+
+fn sanitize_package_name(raw: &str) -> String {
+    raw.chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug)]

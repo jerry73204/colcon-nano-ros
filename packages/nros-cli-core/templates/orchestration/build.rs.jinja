@@ -1,0 +1,155 @@
+use serde_json::Value;
+use std::env;
+use std::fs;
+use std::path::PathBuf;
+
+const PLAN_PATH: &str = "{{ plan_path }}";
+
+fn main() {
+    println!("cargo:rerun-if-changed={PLAN_PATH}");
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set"));
+    let plan_text = fs::read_to_string(PLAN_PATH).expect("read nros-plan.json");
+    let plan: Value = serde_json::from_str(&plan_text).expect("parse nros-plan.json");
+    let generated = render_generated(&plan);
+    fs::write(out_dir.join("nros_generated.rs"), generated).expect("write generated Rust tables");
+}
+
+fn render_generated(plan: &Value) -> String {
+    let schema = string_field(plan, "schema", "nano-ros/plan/pending");
+    let plan_id = u32_field(plan, "plan_id", 0);
+    let sched_contexts = array_field(plan, "sched_contexts");
+    let callback_bindings = array_field(plan, "callback_bindings");
+    let callback_count = usize_field(plan, "callback_count", callback_bindings.len());
+    let max_nodes = usize_field(plan, "max_nodes", array_field(plan, "instances").len());
+    let max_callbacks = usize_field(plan, "max_callbacks", callback_count);
+    let max_sched_contexts = usize_field(plan, "max_sched_contexts", sched_contexts.len() + 1);
+    let max_parameters = usize_field(plan, "max_parameters", array_field(plan, "parameters").len());
+    let max_interfaces = usize_field(plan, "max_interfaces", array_field(plan, "interfaces").len());
+
+    let mut out = String::new();
+    out.push_str("use nros_orchestration::{CallbackBindingSpec, CapacitySpec, PlanId, SchedClassSpec, SchedContextSpec, SystemSpec};\n");
+    out.push_str("use nros_orchestration::{CallbackHandleTable, ComponentSpec, InstanceSpec, ParameterSpec};\n");
+    out.push_str("use nros_orchestration::{DeadlinePolicySpec, PrioritySpec};\n\n");
+    out.push_str(&format!("pub const CALLBACK_COUNT: usize = {callback_count};\n"));
+    out.push_str(&format!(
+        "pub const SCHED_CONTEXT_COUNT: usize = {};\n\n",
+        sched_contexts.len()
+    ));
+    out.push_str(&format!(
+        "pub static SCHED_CONTEXTS: [SchedContextSpec; {}] = [\n",
+        sched_contexts.len()
+    ));
+    for sc in sched_contexts {
+        out.push_str(&render_sched_context(sc));
+    }
+    out.push_str("];\n\n");
+    out.push_str(&format!(
+        "pub static CALLBACK_BINDINGS: [CallbackBindingSpec; {}] = [\n",
+        callback_bindings.len()
+    ));
+    for binding in callback_bindings {
+        let callback_index = usize_field(binding, "callback_index", 0);
+        let sched_context_index = usize_field(binding, "sched_context_index", 0);
+        out.push_str(&format!(
+            "    CallbackBindingSpec {{ callback_index: {callback_index}, sched_context_index: {sched_context_index} }},\n"
+        ));
+    }
+    out.push_str("];\n\n");
+    out.push_str("pub static COMPONENTS: [ComponentSpec; 0] = [];\n");
+    out.push_str("pub static INSTANCES: [InstanceSpec; 0] = [];\n");
+    out.push_str("pub static PARAMETERS: [ParameterSpec; 0] = [];\n\n");
+    out.push_str(&format!(
+        "pub static SYSTEM: SystemSpec = SystemSpec {{ schema: {schema:?}, plan_id: PlanId({plan_id}), capacities: CapacitySpec {{ max_nodes: {max_nodes}, max_callbacks: {max_callbacks}, max_sched_contexts: {max_sched_contexts}, max_parameters: {max_parameters}, max_interfaces: {max_interfaces} }}, components: &COMPONENTS, instances: &INSTANCES, parameters: &PARAMETERS, sched_contexts: &SCHED_CONTEXTS, callback_bindings: &CALLBACK_BINDINGS }};\n\n"
+    ));
+    out.push_str("pub fn instantiate_components(_executor: &mut nros::Executor, _handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
+    out.push_str("    Ok(())\n");
+    out.push_str("}\n");
+    out
+}
+
+fn render_sched_context(sc: &Value) -> String {
+    let id = string_field(sc, "id", "sched");
+    let class = enum_name(
+        string_field(sc, "class", "fifo"),
+        &[
+            ("fifo", "Fifo"),
+            ("edf", "Edf"),
+            ("sporadic", "Sporadic"),
+            ("best_effort", "BestEffort"),
+        ],
+        "Fifo",
+    );
+    let priority = enum_name(
+        string_field(sc, "priority", "normal"),
+        &[
+            ("critical", "Critical"),
+            ("normal", "Normal"),
+            ("best_effort", "BestEffort"),
+        ],
+        "Normal",
+    );
+    let deadline_policy = enum_name(
+        string_field(sc, "deadline_policy", "activated"),
+        &[
+            ("released", "Released"),
+            ("activated", "Activated"),
+            ("inherited", "Inherited"),
+        ],
+        "Activated",
+    );
+    format!(
+        "    SchedContextSpec {{ id: {id:?}, class: SchedClassSpec::{class}, priority: PrioritySpec::{priority}, period_us: {period}, budget_us: {budget}, deadline_us: {deadline}, deadline_policy: DeadlinePolicySpec::{deadline_policy}, os_pri: {os_pri}, tt_window_offset_us: {tt_offset}, tt_window_duration_us: {tt_duration} }},\n",
+        period = option_u32(sc, "period_us"),
+        budget = option_u32(sc, "budget_us"),
+        deadline = option_u32(sc, "deadline_us"),
+        os_pri = u32_field(sc, "os_pri", 0),
+        tt_offset = option_u32(sc, "tt_window_offset_us"),
+        tt_duration = option_u32(sc, "tt_window_duration_us"),
+    )
+}
+
+fn array_field<'a>(value: &'a Value, name: &str) -> &'a [Value] {
+    value
+        .get(name)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
+fn string_field<'a>(value: &'a Value, name: &str, default: &'a str) -> &'a str {
+    value.get(name).and_then(Value::as_str).unwrap_or(default)
+}
+
+fn usize_field(value: &Value, name: &str, default: usize) -> usize {
+    value
+        .get(name)
+        .and_then(Value::as_u64)
+        .and_then(|v| usize::try_from(v).ok())
+        .unwrap_or(default)
+}
+
+fn u32_field(value: &Value, name: &str, default: u32) -> u32 {
+    value
+        .get(name)
+        .and_then(Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+        .unwrap_or(default)
+}
+
+fn option_u32(value: &Value, name: &str) -> String {
+    match value
+        .get(name)
+        .and_then(Value::as_u64)
+        .and_then(|v| u32::try_from(v).ok())
+    {
+        Some(v) => format!("Some({v})"),
+        None => "None".to_string(),
+    }
+}
+
+fn enum_name<'a>(raw: &str, choices: &[(&str, &'a str)], default: &'a str) -> &'a str {
+    choices
+        .iter()
+        .find_map(|(name, variant)| (*name == raw).then_some(*variant))
+        .unwrap_or(default)
+}
