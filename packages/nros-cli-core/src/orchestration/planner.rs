@@ -533,6 +533,8 @@ fn schema_instance(instance: &Value) -> Value {
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let callbacks = schema_callbacks(id, instance.get("callbacks"));
+    let sched_bindings = schema_sched_bindings(&callbacks);
     json!({
         "id": id,
         "component": format!("{package}::{executable}"),
@@ -548,14 +550,58 @@ fn schema_instance(instance: &Value) -> Value {
             "namespace": namespace,
             "entities": entities,
         }],
-        "callbacks": [],
+        "callbacks": callbacks,
         "parameters": schema_parameters(id, instance.get("parameters")),
-        "sched_bindings": [],
+        "sched_bindings": sched_bindings,
         "trace": {
             "launch_record_entity": format!("record://{id}"),
             "source_metadata": instance.get("source_metadata").and_then(Value::as_str).unwrap_or(""),
         },
     })
+}
+
+fn schema_callbacks(instance_id: &str, value: Option<&Value>) -> Vec<Value> {
+    let Some(Value::Array(callbacks)) = value else {
+        return Vec::new();
+    };
+    callbacks
+        .iter()
+        .filter_map(|callback| {
+            let source_callback = callback.get("id").and_then(Value::as_str)?;
+            if source_callback.is_empty() {
+                return None;
+            }
+            let source = callback.get("source").cloned().unwrap_or_else(|| {
+                json!({
+                    "artifact": "source-metadata.json",
+                    "line": null,
+                    "column": null,
+                })
+            });
+            Some(json!({
+                "id": format!("{instance_id}/{source_callback}"),
+                "source_callback": source_callback,
+                "group": callback.get("group").and_then(Value::as_str).unwrap_or("default"),
+                "sched_context": "default_executor",
+                "source": source,
+            }))
+        })
+        .collect()
+}
+
+fn schema_sched_bindings(callbacks: &[Value]) -> Vec<Value> {
+    callbacks
+        .iter()
+        .filter_map(|callback| {
+            let id = callback.get("id").and_then(Value::as_str)?;
+            Some(json!({
+                "callback": id,
+                "context": "default_executor",
+                "priority": null,
+                "source": "source_metadata",
+            }))
+        })
+        .collect()
 }
 
 fn schema_remaps(value: Option<&Value>) -> Vec<Value> {
@@ -875,6 +921,9 @@ fn build_node_instance(
             )
         })
         .unwrap_or_default();
+    let callbacks = source_metadata
+        .map(|artifact| source_callbacks(&artifact.value))
+        .unwrap_or_default();
 
     json!({
         "id": instance_id,
@@ -888,7 +937,16 @@ fn build_node_instance(
         "parameters": parameters,
         "source_metadata": source_metadata.map(|artifact| artifact.path.to_string_lossy().to_string()),
         "entities": entities,
+        "callbacks": callbacks,
     })
+}
+
+fn source_callbacks(metadata: &Value) -> Vec<Value> {
+    metadata
+        .get("callbacks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default()
 }
 
 fn source_entities(
@@ -1632,6 +1690,141 @@ topics:
         assert!(err.contains("missing-interface-entity"), "{err}");
     }
 
+    #[test]
+    fn plan_system_keeps_instance_callbacks_remaps_and_parameter_overrides() {
+        let root = temp_workspace("nros-plan-callbacks-params");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.xml"),
+            r#"<package format="3"><name>system_pkg</name><version>0.1.0</version></package>"#,
+        )
+        .unwrap();
+        let launch = root.join("system.launch.xml");
+        fs::write(&launch, "<launch />").unwrap();
+        let record = root.join("record.json");
+        fs::write(
+            &record,
+            r#"{
+  "node": [
+    {
+      "package": "demo_pkg",
+      "executable": "talker",
+      "name": "talker_a",
+      "namespace": "/robot_a",
+      "remaps": [{"from": "chatter", "to": "/bus/a"}],
+      "params": [{"name": "rate_hz", "value": "20"}]
+    },
+    {
+      "package": "demo_pkg",
+      "executable": "talker",
+      "name": "talker_b",
+      "namespace": "/robot_b",
+      "remaps": [{"from": "chatter", "to": "/bus/b"}],
+      "params": [{"name": "rate_hz", "value": "30"}]
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+        let metadata = root.join("talker.metadata.json");
+        fs::write(
+            &metadata,
+            r#"{
+  "version": 1,
+  "package": "demo_pkg",
+  "component": "talker",
+  "language": "rust",
+  "executable": "talker",
+  "exported_symbol": "nros_component_talker",
+  "nodes": [{
+    "id": "node_talker",
+    "unresolved_name": {"value": "talker", "kind": "relative"},
+    "namespace": null,
+    "publishers": [{
+      "id": "pub_chatter",
+      "unresolved_topic": {"value": "chatter", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }],
+    "subscribers": [{
+      "id": "sub_cmd",
+      "unresolved_topic": {"value": "cmd", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null,
+      "callback": "cb_cmd"
+    }],
+    "timers": [],
+    "services": [],
+    "actions": []
+  }],
+  "callbacks": [{
+    "id": "cb_cmd",
+    "kind": "subscription",
+    "group": null,
+    "effects": [],
+    "source": {"artifact": "src/talker.rs", "line": 42, "column": 5}
+  }],
+  "parameters": [
+    {"node": "node_talker", "name": "rate_hz", "default": 10, "read_only": false, "source": {"artifact": "src/talker.rs", "line": 10, "column": 1}},
+    {"node": "node_talker", "name": "frame", "default": "map", "read_only": false, "source": {"artifact": "src/talker.rs", "line": 11, "column": 1}}
+  ],
+  "trace": {"generator": "nros-metadata-rust", "package_manifest": "package.xml", "source_artifacts": ["src/talker.rs"]}
+}"#,
+        )
+        .unwrap();
+
+        let output = plan_system(PlanOptions {
+            system_pkg: "system_pkg".to_string(),
+            workspace_root: root.clone(),
+            launch_file: launch,
+            record_file: Some(record),
+            out_root: root.join("build/system_pkg/nros"),
+            metadata_files: vec![metadata],
+            manifest_files: vec![],
+            nros_toml_files: vec![],
+            launch_args: vec![],
+        })
+        .unwrap();
+        let plan: Value =
+            serde_json::from_str(&fs::read_to_string(output.plan_path).unwrap()).unwrap();
+        serde_json::from_value::<NrosPlan>(plan.clone()).unwrap();
+        let instances = plan["instances"].as_array().unwrap();
+        assert_eq!(instances.len(), 2);
+        assert_eq!(
+            instances[0]["nodes"][0]["entities"][0]["resolved_name"],
+            "/bus/a"
+        );
+        assert_eq!(
+            instances[1]["nodes"][0]["entities"][0]["resolved_name"],
+            "/bus/b"
+        );
+        assert_eq!(
+            instances[0]["callbacks"][0]["id"],
+            "demo_pkg.talker.0/cb_cmd"
+        );
+        assert_eq!(
+            instances[1]["callbacks"][0]["id"],
+            "demo_pkg.talker.1/cb_cmd"
+        );
+        assert_eq!(
+            instances[0]["sched_bindings"][0]["callback"],
+            "demo_pkg.talker.0/cb_cmd"
+        );
+        assert_plan_parameter(&instances[0], "rate_hz", json!(20));
+        assert_plan_parameter(&instances[1], "rate_hz", json!(30));
+        assert_plan_parameter(&instances[0], "frame", json!("map"));
+    }
+
+    fn assert_plan_parameter(instance: &Value, name: &str, expected: Value) {
+        let parameter = instance["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|parameter| parameter["name"] == name)
+            .unwrap_or_else(|| panic!("missing parameter {name}"));
+        assert_eq!(parameter["value"], expected);
+    }
+
     #[cfg(feature = "play-launch-parser")]
     fn generated_plan(name: &str) -> (PathBuf, Value) {
         let root = temp_workspace(name);
@@ -1690,7 +1883,6 @@ topics:
         (root, plan)
     }
 
-    #[cfg(feature = "play-launch-parser")]
     fn temp_workspace(name: &str) -> PathBuf {
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)

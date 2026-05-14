@@ -17,6 +17,7 @@ pub fn effective_parameters(inputs: ParameterInputs<'_>) -> Value {
     if let Some(metadata) = inputs.source_metadata {
         merge_object(&mut out, metadata.get("parameter_defaults"));
         merge_object(&mut out, metadata.pointer("/parameters/defaults"));
+        merge_source_parameter_array(&mut out, metadata.get("parameters"));
         merge_object(&mut out, metadata.get("parameters"));
     }
     if let Some(package_nros) = inputs.package_nros {
@@ -53,6 +54,21 @@ pub fn load_toml_values(paths: &[PathBuf]) -> eyre::Result<Vec<Value>> {
             Ok(serde_json::to_value(value)?)
         })
         .collect()
+}
+
+fn merge_source_parameter_array(out: &mut Map<String, Value>, value: Option<&Value>) {
+    let Some(Value::Array(parameters)) = value else {
+        return;
+    };
+    for parameter in parameters {
+        let Some(name) = parameter.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(default) = parameter.get("default") else {
+            continue;
+        };
+        out.insert(name.to_string(), default.clone());
+    }
 }
 
 fn merge_object(out: &mut Map<String, Value>, value: Option<&Value>) {
