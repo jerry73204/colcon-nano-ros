@@ -49,6 +49,7 @@ pub struct QosProfile {
     pub lifespan_ms: Option<u64>,
     pub liveliness: QosLiveliness,
     pub liveliness_lease_duration_ms: Option<u64>,
+    /// Vendor/backend QoS keys that are not part of schema v1 yet.
     pub extensions: BTreeMap<String, String>,
 }
 
@@ -102,6 +103,7 @@ pub struct RemapRule {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SourceName {
+    /// Original source spelling, kept unresolved for launch namespace/remap logic.
     pub value: String,
     pub kind: SourceNameKind,
 }
@@ -117,9 +119,13 @@ pub enum SourceNameKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SchedClass {
+    /// Maps to runtime best-effort scheduling.
     BestEffort,
+    /// Maps to runtime FIFO fixed-priority scheduling.
     RealTime,
+    /// Maps to FIFO with period/window metadata consumed by generated bindings.
     TimeTriggered,
+    /// Maps to FIFO for interrupt-adjacent callbacks; platform code owns IRQ binding.
     Interrupt,
 }
 

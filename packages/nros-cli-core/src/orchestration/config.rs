@@ -129,6 +129,7 @@ pub struct SchedContextConfig {
 #[serde(deny_unknown_fields)]
 pub struct EndpointMapping {
     pub instance: String,
+    /// ROS manifest endpoint ID selected when name/type/role matching is ambiguous.
     pub manifest_endpoint: String,
     pub source_entity: Option<String>,
     pub source_callback: Option<String>,

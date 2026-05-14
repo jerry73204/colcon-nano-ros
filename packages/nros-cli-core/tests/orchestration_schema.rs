@@ -52,6 +52,20 @@ fn source_metadata_json_round_trips() {
 }
 
 #[test]
+fn source_metadata_name_and_effect_edges_round_trip() {
+    let metadata: SourceMetadata = assert_json_fixture(include_str!(
+        "fixtures/orchestration/source_metadata_names_effects.json"
+    ));
+
+    let node = &metadata.nodes[0];
+    assert_eq!(node.unresolved_name.value, "/robot/controller");
+    assert_eq!(node.publishers[0].unresolved_topic.value, "/diagnostics");
+    assert_eq!(node.subscribers[0].unresolved_topic.value, "~/cmd");
+    assert_eq!(metadata.callbacks[0].effects.len(), 2);
+    assert_eq!(metadata.callbacks[2].effects.len(), 2);
+}
+
+#[test]
 fn component_nros_toml_round_trips() {
     let config: ComponentConfig =
         assert_toml_fixture(include_str!("fixtures/orchestration/component_nros.toml"));
@@ -105,6 +119,20 @@ fn multi_instance_plan_json_round_trips() {
     assert_eq!(plan.instances.len(), 2);
     assert_ne!(plan.instances[0].id, plan.instances[1].id);
     assert_eq!(plan.instances[0].component, plan.instances[1].component);
+}
+
+#[test]
+fn edge_instance_name_and_sched_variants_round_trip() {
+    let plan: NrosPlan = assert_json_fixture(include_str!(
+        "fixtures/orchestration/plan_edge_instances_names.json"
+    ));
+
+    assert_eq!(plan.version, PLAN_VERSION);
+    assert_eq!(plan.instances.len(), 2);
+    assert_eq!(plan.instances[0].component, plan.instances[1].component);
+    assert_eq!(plan.instances[0].remaps[0].from, "~/cmd");
+    assert_eq!(plan.instances[0].remaps[1].from, "/diagnostics");
+    assert_eq!(plan.sched_contexts.len(), 4);
 }
 
 #[test]

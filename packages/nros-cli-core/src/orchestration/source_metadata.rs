@@ -110,6 +110,7 @@ pub enum CallbackKind {
 #[serde(deny_unknown_fields)]
 pub struct CallbackEffect {
     pub kind: CallbackEffectKind,
+    /// Source entity ID affected by the callback.
     pub entity: String,
 }
 
@@ -119,6 +120,11 @@ pub enum CallbackEffectKind {
     Publishes,
     ReadsParameter,
     WritesParameter,
+    SendsServiceRequest,
+    SendsServiceReply,
+    SendsActionGoal,
+    SendsActionFeedback,
+    SendsActionResult,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

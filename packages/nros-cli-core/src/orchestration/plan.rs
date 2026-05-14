@@ -193,6 +193,7 @@ pub struct PlanInterface {
 pub struct PlanSchedContext {
     pub id: String,
     pub executor: String,
+    /// Schema-level class; generated code maps this to the runtime scheduler class.
     pub class: SchedClass,
     pub priority: Option<u8>,
     pub period_ms: Option<u64>,
