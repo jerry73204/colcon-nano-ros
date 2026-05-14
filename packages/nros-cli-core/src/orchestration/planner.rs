@@ -420,6 +420,14 @@ fn source_entities(
     remaps: &[(String, String)],
 ) -> Vec<Value> {
     let mut out = Vec::new();
+    collect_schema_nodes(
+        metadata.get("nodes"),
+        path,
+        namespace,
+        node_name,
+        remaps,
+        &mut out,
+    );
     collect_entity_array(
         metadata.get("entities"),
         "entity",
@@ -486,6 +494,110 @@ fn source_entities(
     out
 }
 
+fn collect_schema_nodes(
+    value: Option<&Value>,
+    path: &Path,
+    namespace: &str,
+    node_name: &str,
+    remaps: &[(String, String)],
+    out: &mut Vec<Value>,
+) {
+    let Some(Value::Array(nodes)) = value else {
+        return;
+    };
+    for node in nodes {
+        collect_schema_endpoint_array(
+            node.get("publishers"),
+            "publisher",
+            "unresolved_topic",
+            path,
+            namespace,
+            node_name,
+            remaps,
+            out,
+        );
+        collect_schema_endpoint_array(
+            node.get("subscribers"),
+            "subscriber",
+            "unresolved_topic",
+            path,
+            namespace,
+            node_name,
+            remaps,
+            out,
+        );
+        collect_schema_endpoint_array(
+            node.get("services"),
+            "service_server",
+            "unresolved_name",
+            path,
+            namespace,
+            node_name,
+            remaps,
+            out,
+        );
+        collect_schema_endpoint_array(
+            node.get("actions"),
+            "action_server",
+            "unresolved_name",
+            path,
+            namespace,
+            node_name,
+            remaps,
+            out,
+        );
+        collect_schema_timer_array(node.get("timers"), path, out);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn collect_schema_endpoint_array(
+    value: Option<&Value>,
+    role: &str,
+    name_key: &str,
+    path: &Path,
+    namespace: &str,
+    node_name: &str,
+    remaps: &[(String, String)],
+    out: &mut Vec<Value>,
+) {
+    let Some(Value::Array(items)) = value else {
+        return;
+    };
+    for item in items {
+        let source_name = source_name_value(item.get(name_key));
+        let resolved = names::resolve_entity_name(namespace, node_name, source_name, remaps);
+        out.push(json!({
+            "source_artifact": path,
+            "source_id": item.get("id"),
+            "role": role,
+            "source_name": resolved.source,
+            "source_name_kind": source_name_kind(item.get(name_key)),
+            "resolved_name": resolved.resolved,
+            "remapped_from": resolved.remapped_from,
+            "type": item.get("interface"),
+            "qos": item.get("qos"),
+            "callback": item.get("callback")
+                .or_else(|| item.get("goal_callback")),
+        }));
+    }
+}
+
+fn collect_schema_timer_array(value: Option<&Value>, path: &Path, out: &mut Vec<Value>) {
+    let Some(Value::Array(items)) = value else {
+        return;
+    };
+    for item in items {
+        out.push(json!({
+            "source_artifact": path,
+            "source_id": item.get("id"),
+            "role": "timer",
+            "period_ms": item.get("period_ms"),
+            "callback": item.get("callback"),
+        }));
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn collect_entity_array(
     value: Option<&Value>,
@@ -517,12 +629,42 @@ fn collect_entity_array(
             "source_id": item.get("id"),
             "role": normalize_role(role),
             "source_name": resolved.source,
+            "source_name_kind": infer_source_name_kind(source_name),
             "resolved_name": resolved.resolved,
             "remapped_from": resolved.remapped_from,
             "type": item.get("type")
                 .or_else(|| item.get("interface_type"))
                 .or_else(|| item.get("message_type")),
         }));
+    }
+}
+
+fn source_name_value(value: Option<&Value>) -> &str {
+    match value {
+        Some(Value::String(name)) => name,
+        Some(Value::Object(map)) => map.get("value").and_then(Value::as_str).unwrap_or(""),
+        _ => "",
+    }
+}
+
+fn source_name_kind(value: Option<&Value>) -> &str {
+    match value {
+        Some(Value::Object(map)) => map
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| infer_source_name_kind(source_name_value(value))),
+        Some(Value::String(name)) => infer_source_name_kind(name),
+        _ => "relative",
+    }
+}
+
+fn infer_source_name_kind(name: &str) -> &str {
+    if name == "~" || name.starts_with("~/") {
+        "private"
+    } else if name.starts_with('/') {
+        "absolute"
+    } else {
+        "relative"
     }
 }
 
@@ -604,7 +746,7 @@ fn entity_matches_requirement(instances: &[Value], requirement: &Value) -> bool 
                 .any(|entity| {
                     entity.get("role").and_then(Value::as_str) == Some(role.as_str())
                         && endpoint_name_matches(entity, name)
-                        && interface_type.is_none_or(|ty| entity_type(entity) == Some(ty))
+                        && interface_type.is_none_or(|ty| entity_type_matches(entity, ty))
                 })
         })
 }
@@ -627,14 +769,20 @@ fn endpoint_name_matches(entity: &Value, name: &str) -> bool {
     resolved == name || resolved.trim_start_matches('/') == name.trim_start_matches('/')
 }
 
-fn entity_type(entity: &Value) -> Option<&str> {
-    entity.get("type").and_then(|ty| {
-        if let Value::String(s) = ty {
-            Some(s.as_str())
-        } else {
-            ty.as_str()
+fn entity_type_matches(entity: &Value, interface_type: &str) -> bool {
+    let Some(ty) = entity.get("type") else {
+        return false;
+    };
+    match ty {
+        Value::String(s) => s == interface_type,
+        Value::Object(map) => {
+            let package = map.get("package").and_then(Value::as_str).unwrap_or("");
+            let name = map.get("name").and_then(Value::as_str).unwrap_or("");
+            format!("{package}/{name}") == interface_type
+                || format!("{package}::{name}") == interface_type
         }
-    })
+        _ => false,
+    }
 }
 
 fn find_source_metadata<'a>(
@@ -848,8 +996,22 @@ mod tests {
             &metadata,
             r#"{
   "package": "demo_pkg",
+  "component": "talker",
   "executable": "talker",
-  "publishers": [{"id": "pub.chatter", "name": "chatter", "type": "std_msgs/msg/String"}]
+  "nodes": [{
+    "id": "node_talker",
+    "unresolved_name": {"value": "talker", "kind": "relative"},
+    "publishers": [{
+      "id": "pub.chatter",
+      "unresolved_topic": {"value": "chatter", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }],
+    "subscribers": [],
+    "timers": [],
+    "services": [],
+    "actions": []
+  }]
 }"#,
         )
         .unwrap();
@@ -900,8 +1062,22 @@ mod tests {
             &metadata,
             r#"{
   "package": "demo_pkg",
+  "component": "driver",
   "executable": "driver",
-  "publishers": [{"id": "pub.cmd", "name": "~/cmd", "type": "std_msgs/msg/String"}]
+  "nodes": [{
+    "id": "node_driver",
+    "unresolved_name": {"value": "driver", "kind": "relative"},
+    "publishers": [{
+      "id": "pub.cmd",
+      "unresolved_topic": {"value": "~/cmd", "kind": "private"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }],
+    "subscribers": [],
+    "timers": [{"id": "timer.poll", "period_ms": 100, "callback": "cb.poll"}],
+    "services": [],
+    "actions": []
+  }]
 }"#,
         )
         .unwrap();
@@ -935,6 +1111,12 @@ topics:
             plan["instances"][0]["entities"][0]["resolved_name"],
             "/mux/cmd"
         );
+        assert_eq!(
+            plan["instances"][0]["entities"][0]["source_name_kind"],
+            "private"
+        );
+        assert_eq!(plan["instances"][0]["entities"][1]["role"], "timer");
+        assert!(plan["instances"][0]["entities"][1]["resolved_name"].is_null());
         assert!(
             plan["diagnostics"]
                 .as_array()
