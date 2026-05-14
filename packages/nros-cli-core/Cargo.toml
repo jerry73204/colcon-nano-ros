@@ -17,10 +17,11 @@ name = "nros_cli_core"
 path = "src/lib.rs"
 
 [features]
-default = []
+default = ["play-launch-parser"]
 # Maintainer-only release subcommands (`nros release detect|publish|tag`).
 # Hidden from `nros --help` unless this feature is on at build time.
 release = []
+play-launch-parser = ["dep:play_launch_parser"]
 
 [dependencies]
 clap = { workspace = true }
@@ -30,6 +31,8 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 toml_edit = "0.22"
 cargo_metadata = "0.18"
+play_launch_parser = { path = "../../../../../play_launch/src/play_launch_parser/crates/play_launch_parser", optional = true }
+ros-launch-manifest-types = { path = "../../../../../play_launch/src/ros-launch-manifest/types" }
 
 # Reuse generate-{rust,c,cpp} surface from cargo-nano-ros — avoids
 # re-implementing codegen and keeps `nros generate` byte-for-byte

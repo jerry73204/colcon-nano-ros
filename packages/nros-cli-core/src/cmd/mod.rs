@@ -11,12 +11,15 @@ use clap::Subcommand;
 
 pub mod board;
 pub mod build;
+pub mod check;
 pub mod completions;
 pub mod config;
 pub mod doctor;
 pub mod generate;
+pub mod metadata;
 pub mod monitor;
 pub mod new;
+pub mod plan;
 pub mod run_target;
 pub mod version;
 
@@ -30,6 +33,15 @@ pub enum Cmd {
 
     /// Generate Rust / C / C++ message bindings from `package.xml`
     Generate(generate::Args),
+
+    /// Collect component source metadata for orchestration planning
+    Metadata(metadata::Args),
+
+    /// Resolve launch files, manifests, and metadata into nros-plan.json
+    Plan(plan::Args),
+
+    /// Validate a generated nros-plan.json
+    Check(check::Args),
 
     /// Inspect or validate the current project's resolved configuration
     #[command(subcommand)]

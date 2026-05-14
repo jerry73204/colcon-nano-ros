@@ -1,12 +1,18 @@
 //! Build-time orchestration schemas.
 //!
-//! These types are data contracts only. They intentionally avoid launch
-//! parsing, generated runtime code, and target runtime crates.
+//! Schema modules are data contracts only. Planner modules consume those
+//! contracts and host-side launch artifacts; generated target code remains in
+//! the Phase 126.D surface.
 
 pub mod config;
+pub mod manifest;
+pub mod names;
+pub mod params;
 pub mod plan;
+pub mod planner;
 pub mod schema;
 pub mod source_metadata;
+pub mod workspace;
 
 pub use config::{ComponentConfig, SystemConfig};
 pub use plan::NrosPlan;
