@@ -7,6 +7,7 @@
 //! `docs/roadmap/phase-111-ux-cli-and-release-channels.md`.
 
 pub mod cmd;
+pub mod orchestration;
 
 use eyre::Result;
 
