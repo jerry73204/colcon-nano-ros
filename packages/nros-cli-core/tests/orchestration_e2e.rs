@@ -1,6 +1,10 @@
 use std::{
     fs,
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    thread,
+    time::{Duration, Instant},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -77,6 +81,21 @@ fn fixture_workspace_plans_checks_and_builds_generated_package() {
 
     assert!(generated_dir.join("Cargo.toml").is_file());
     assert!(generated_dir.join("src/main.rs").is_file());
+
+    let binary = out_dir
+        .join("target")
+        .join(&plan.build.target)
+        .join("debug")
+        .join("nros-e2e-generated");
+    assert!(
+        binary.is_file(),
+        "generated binary exists at {}",
+        binary.display()
+    );
+
+    let port = free_local_port();
+    let _zenohd = start_zenohd(port);
+    assert_generated_binary_spins(&binary, port);
 }
 
 fn fixture_workspace() -> PathBuf {
@@ -97,6 +116,85 @@ fn nano_ros_workspace() -> PathBuf {
         .nth(4)
         .expect("nano-ros workspace ancestor")
         .to_path_buf()
+}
+
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn free_local_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral localhost port");
+    listener
+        .local_addr()
+        .expect("ephemeral listener local address")
+        .port()
+}
+
+fn start_zenohd(port: u16) -> ChildGuard {
+    let zenohd = nano_ros_workspace().join("build/zenohd/zenohd");
+    assert!(
+        zenohd.is_file(),
+        "zenohd binary missing at {}; run `just build-zenohd`",
+        zenohd.display()
+    );
+
+    let child = Command::new(&zenohd)
+        .arg("--listen")
+        .arg(format!("tcp/127.0.0.1:{port}"))
+        .arg("--no-multicast-scouting")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap_or_else(|error| panic!("spawn zenohd {}: {error}", zenohd.display()));
+    let guard = ChildGuard(child);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        if TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            return guard;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("zenohd did not listen on tcp/127.0.0.1:{port}");
+}
+
+fn assert_generated_binary_spins(binary: &Path, port: u16) {
+    let mut child = Command::new(binary)
+        .env("NROS_LOCATOR", format!("tcp/127.0.0.1:{port}"))
+        .env("NROS_SESSION_MODE", "client")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|error| panic!("spawn generated binary {}: {error}", binary.display()));
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < deadline {
+        if let Some(status) = child
+            .try_wait()
+            .expect("poll generated binary process status")
+        {
+            let output = child
+                .wait_with_output()
+                .expect("collect generated binary output");
+            panic!(
+                "generated binary exited early with {status}\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+
+    child.kill().expect("stop spinning generated binary");
+    let status = child.wait().expect("wait for stopped generated binary");
+    assert!(
+        !status.success(),
+        "generated binary should still be spinning until the test stops it"
+    );
 }
 
 fn temp_output(name: &str) -> PathBuf {
