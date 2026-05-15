@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 use nros_cli_core::orchestration::generate::{GenerateOptions, generate_package};
@@ -34,6 +35,28 @@ fn generate_plan(name: &str, plan_path: PathBuf, output_dir: PathBuf) {
         nros_orchestration_path: PathBuf::from("/workspace/packages/core/nros-orchestration"),
     })
     .unwrap_or_else(|error| panic!("{name} generated package writes: {error:?}"));
+}
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(4)
+        .expect("repo root ancestor")
+        .to_path_buf()
+}
+
+fn generate_workspace_backed_fixture(name: &str, plan_fixture: &str) -> PathBuf {
+    let output_dir = temp_output(name);
+    let root = workspace_root();
+    generate_package(&GenerateOptions {
+        package_name: "nros-generated-test".to_string(),
+        output_dir: output_dir.clone(),
+        plan_path: fixture(plan_fixture),
+        nros_path: root.join("packages/core/nros"),
+        nros_orchestration_path: root.join("packages/core/nros-orchestration"),
+    })
+    .unwrap_or_else(|error| panic!("{name} generated package writes: {error:?}"));
+    output_dir
 }
 
 #[test]
@@ -113,6 +136,33 @@ fn generated_package_features_follow_rtos_plan() {
     ));
     assert!(!cargo_toml.contains("\"std\""));
     assert!(!cargo_toml.contains("platform-posix"));
+}
+
+#[test]
+fn generated_package_is_readable_by_cargo_metadata() {
+    let output_dir =
+        generate_workspace_backed_fixture("generated_package_cargo_metadata", "plan_pub_sub.json");
+    let manifest_path = output_dir.join("Cargo.toml");
+
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--no-deps")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .output()
+        .expect("run cargo metadata for generated package");
+
+    assert!(
+        output.status.success(),
+        "cargo metadata failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"name\":\"nros-generated-test\""));
+    assert!(stdout.contains("\"src_path\""));
 }
 
 #[test]
