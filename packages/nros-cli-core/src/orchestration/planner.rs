@@ -1491,8 +1491,8 @@ fn check_manifest_endpoints(
         return diagnostics;
     }
     let requirements = endpoint_requirements(manifests);
-    for requirement in requirements {
-        if !entity_matches_requirement(instances, &requirement) {
+    for requirement in &requirements {
+        if !entity_matches_requirement(instances, requirement) {
             diagnostics.push(diagnostic(
                 "error",
                 "manifest-endpoint-unmatched",
@@ -1523,10 +1523,98 @@ fn check_manifest_endpoints(
             ));
         }
     }
+    diagnostics.extend(check_metadata_entities_in_manifest(
+        instances,
+        &requirements,
+        record_path,
+    ));
     diagnostics
 }
 
+fn check_metadata_entities_in_manifest(
+    instances: &[Value],
+    requirements: &[Value],
+    record_path: &Path,
+) -> Vec<Value> {
+    let mut diagnostics = Vec::new();
+    for instance in instances {
+        let package = instance.get("package").and_then(Value::as_str);
+        let instance_id = instance.get("id").and_then(Value::as_str);
+        let Some(entities) = instance.get("entities").and_then(Value::as_array) else {
+            continue;
+        };
+        for entity in entities {
+            let role = entity.get("role").and_then(Value::as_str).unwrap_or("");
+            if !is_manifest_endpoint_role(role) {
+                continue;
+            }
+            if requirements
+                .iter()
+                .any(|requirement| entity_matches_single_requirement(instance, entity, requirement))
+            {
+                continue;
+            }
+            diagnostics.push(diagnostic(
+                "error",
+                "metadata-entity-unmatched",
+                format!(
+                    "source metadata entity is not covered by launch manifest: role={} name={} type={}",
+                    role,
+                    entity
+                        .get("resolved_name")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?"),
+                    entity_type_display(entity)
+                ),
+                package,
+                instance_id,
+                entity.get("source_id").and_then(Value::as_str),
+                entity
+                    .get("source_artifact")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from)
+                    .as_deref()
+                    .unwrap_or(record_path),
+            ));
+        }
+    }
+    diagnostics
+}
+
+fn is_manifest_endpoint_role(role: &str) -> bool {
+    matches!(
+        role,
+        "publisher"
+            | "subscriber"
+            | "service_server"
+            | "service_client"
+            | "action_server"
+            | "action_client"
+    )
+}
+
 fn entity_matches_requirement(instances: &[Value], requirement: &Value) -> bool {
+    instances
+        .iter()
+        .filter(|instance| requirement_node_matches(instance, requirement))
+        .any(|instance| {
+            instance
+                .get("entities")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .any(|entity| entity_matches_single_requirement(instance, entity, requirement))
+        })
+}
+
+fn entity_matches_single_requirement(
+    instance: &Value,
+    entity: &Value,
+    requirement: &Value,
+) -> bool {
+    if !requirement_node_matches(instance, requirement) {
+        return false;
+    }
     let role = requirement
         .get("role")
         .and_then(Value::as_str)
@@ -1537,21 +1625,9 @@ fn entity_matches_requirement(instances: &[Value], requirement: &Value) -> bool 
         .and_then(Value::as_str)
         .unwrap_or("");
     let interface_type = requirement.get("type").and_then(Value::as_str);
-    instances
-        .iter()
-        .filter(|instance| requirement_node_matches(instance, requirement))
-        .any(|instance| {
-            instance
-                .get("entities")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .any(|entity| {
-                    entity.get("role").and_then(Value::as_str) == Some(role.as_str())
-                        && endpoint_name_matches(entity, name)
-                        && interface_type.is_none_or(|ty| entity_type_matches(entity, ty))
-                })
-        })
+    entity.get("role").and_then(Value::as_str) == Some(role.as_str())
+        && endpoint_name_matches(entity, name)
+        && interface_type.is_none_or(|ty| entity_type_matches(entity, ty))
 }
 
 fn requirement_node_matches(instance: &Value, requirement: &Value) -> bool {
@@ -1585,6 +1661,18 @@ fn entity_type_matches(entity: &Value, interface_type: &str) -> bool {
                 || format!("{package}::{name}") == interface_type
         }
         _ => false,
+    }
+}
+
+fn entity_type_display(entity: &Value) -> String {
+    match entity.get("type") {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Object(map)) => {
+            let package = map.get("package").and_then(Value::as_str).unwrap_or("");
+            let name = map.get("name").and_then(Value::as_str).unwrap_or("");
+            format!("{package}/{name}")
+        }
+        _ => "?".to_string(),
     }
 }
 
@@ -1722,7 +1810,17 @@ fn diagnostic_summary(diag: &Value) -> String {
         .get("source_artifact")
         .and_then(Value::as_str)
         .unwrap_or("");
-    format!("{code}: {message} ({artifact})")
+    let mut scope = Vec::new();
+    for key in ["package", "instance", "entity"] {
+        if let Some(value) = diag.get(key).and_then(Value::as_str) {
+            scope.push(format!("{key}={value}"));
+        }
+    }
+    if scope.is_empty() {
+        format!("{code}: {message} ({artifact})")
+    } else {
+        format!("{code}: {message} [{}] ({artifact})", scope.join(" "))
+    }
 }
 
 fn normalize_role(role: &str) -> String {
@@ -1929,6 +2027,87 @@ topics:
                 .get("resolved_name")
                 .is_none()
         );
+    }
+
+    #[cfg(feature = "play-launch-parser")]
+    #[test]
+    fn plan_system_rejects_metadata_entity_missing_from_manifest() {
+        let root = temp_workspace("nros-plan-manifest-extra-entity");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join("package.xml"),
+            r#"<package format="3"><name>system_pkg</name><version>0.1.0</version></package>"#,
+        )
+        .unwrap();
+        let launch = root.join("system.launch.xml");
+        fs::write(
+            &launch,
+            r#"<launch>
+  <node pkg="demo_pkg" exec="talker" name="talker" />
+</launch>"#,
+        )
+        .unwrap();
+        let metadata = root.join("talker.metadata.json");
+        fs::write(
+            &metadata,
+            r#"{
+  "package": "demo_pkg",
+  "component": "talker",
+  "executable": "talker",
+  "nodes": [{
+    "id": "node_talker",
+    "unresolved_name": {"value": "talker", "kind": "relative"},
+    "publishers": [{
+      "id": "pub_chatter",
+      "unresolved_topic": {"value": "chatter", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }, {
+      "id": "pub_extra",
+      "unresolved_topic": {"value": "extra", "kind": "relative"},
+      "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+      "qos": null
+    }],
+    "subscribers": [],
+    "timers": [],
+    "services": [],
+    "actions": []
+  }],
+  "callbacks": [],
+  "parameters": [],
+  "trace": {"generator": "test", "package_manifest": "package.xml", "source_artifacts": ["src/talker.rs"]}
+}"#,
+        )
+        .unwrap();
+        let manifest = root.join("manifest.launch.yaml");
+        fs::write(
+            &manifest,
+            r#"version: 1
+topics:
+  /chatter:
+    type: std_msgs/msg/String
+    pub: [/talker]
+"#,
+        )
+        .unwrap();
+
+        let err = plan_system(PlanOptions {
+            system_pkg: "system_pkg".to_string(),
+            workspace_root: root.clone(),
+            launch_file: launch,
+            record_file: None,
+            out_root: root.join("build/system_pkg/nros"),
+            metadata_files: vec![metadata],
+            manifest_files: vec![manifest],
+            nros_toml_files: vec![],
+            launch_args: vec![],
+        })
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("metadata-entity-unmatched"), "{err}");
+        assert!(err.contains("/extra"), "{err}");
+        assert!(err.contains("pub_extra"), "{err}");
     }
 
     #[cfg(feature = "play-launch-parser")]
