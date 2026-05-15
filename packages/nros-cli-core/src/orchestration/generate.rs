@@ -48,10 +48,21 @@ pub fn generate_package(options: &GenerateOptions) -> Result<GeneratedPackage> {
     let plan = load_plan(&options.plan_path)?;
     let cargo_toml = render_cargo_toml(options, &plan);
     let build_rs = render_build_rs(options, &plan);
+    let cargo_config = render_cargo_config(&plan);
 
     write_if_changed(&options.output_dir.join("Cargo.toml"), &cargo_toml)?;
     write_if_changed(&options.output_dir.join("build.rs"), &build_rs)?;
     write_if_changed(&src_dir.join("main.rs"), MAIN_TEMPLATE)?;
+    if let Some(cargo_config) = cargo_config {
+        let cargo_dir = options.output_dir.join(".cargo");
+        fs::create_dir_all(&cargo_dir).wrap_err_with(|| {
+            format!(
+                "failed to create generated package cargo config dir {}",
+                cargo_dir.display()
+            )
+        })?;
+        write_if_changed(&cargo_dir.join("config.toml"), &cargo_config)?;
+    }
 
     Ok(GeneratedPackage {
         root: options.output_dir.clone(),
@@ -93,6 +104,22 @@ fn render_build_rs(options: &GenerateOptions, plan: &NrosPlan) -> String {
         )
 }
 
+fn render_cargo_config(plan: &NrosPlan) -> Option<String> {
+    if platform_feature(&plan.build.board, &plan.build.target) != Some("platform-freertos") {
+        return None;
+    }
+    Some(
+        r#"[target.thumbv7m-none-eabi]
+runner = "qemu-system-arm -cpu cortex-m3 -machine mps2-an385 -nographic -semihosting-config enable=on,target=native -kernel"
+rustflags = [
+    "-C", "link-arg=-Tmps2_an385.ld",
+    "-C", "link-arg=--nmagic",
+]
+"#
+        .to_string(),
+    )
+}
+
 fn path_for_template(path: &Path) -> String {
     path.to_string_lossy()
         .replace('\\', "\\\\")
@@ -129,13 +156,17 @@ fn render_platform_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> S
     let Some(workspace) = workspace_from_nros_path(&options.nros_path) else {
         return String::new();
     };
-    if platform_feature(&plan.build.board, &plan.build.target) != Some("platform-posix") {
-        return String::new();
+    match platform_feature(&plan.build.board, &plan.build.target) {
+        Some("platform-posix") => format!(
+            "nros-platform-cffi = {{ path = \"{}\", default-features = false, features = [\"posix-c-port\"] }}\n",
+            path_for_template(&workspace.join("packages/core/nros-platform-cffi")),
+        ),
+        Some("platform-freertos") => format!(
+            "nros-board-mps2-an385-freertos = {{ path = \"{}\" }}\npanic-semihosting = {{ version = \"0.6\", features = [\"exit\"] }}\n",
+            path_for_template(&workspace.join("packages/boards/nros-board-mps2-an385-freertos")),
+        ),
+        _ => String::new(),
     }
-    format!(
-        "nros-platform-cffi = {{ path = \"{}\", default-features = false, features = [\"posix-c-port\"] }}\n",
-        path_for_template(&workspace.join("packages/core/nros-platform-cffi")),
-    )
 }
 
 fn render_backend_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> String {
@@ -204,6 +235,9 @@ fn generated_default_features(build: &PlanBuildOptions) -> Vec<String> {
     }
     if let Some(platform) = platform_feature(&build.board, &build.target) {
         features.push(format!("nros/{platform}"));
+        if platform == "platform-freertos" {
+            features.push(platform.to_string());
+        }
     }
     if uses_rmw_cffi(&build.rmw) {
         features.push("nros/rmw-cffi".to_string());

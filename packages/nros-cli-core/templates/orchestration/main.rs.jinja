@@ -1,16 +1,17 @@
+#![cfg_attr(feature = "platform-freertos", no_std)]
+#![cfg_attr(feature = "platform-freertos", no_main)]
+
 mod nros_generated {
-    include!(concat!(env!("OUT_DIR"), "/nros_generated.rs"));
+    core::include!(core::concat!(core::env!("OUT_DIR"), "/nros_generated.rs"));
 }
 
 use nros::prelude::*;
 use nros_orchestration::CallbackHandleTable;
 
-fn main() -> Result<(), nros::NodeError> {
-    #[cfg(feature = "std")]
-    let config = ExecutorConfig::from_env().node_name(nros_generated::SYSTEM.default_node_name());
-    #[cfg(not(feature = "std"))]
-    let config =
-        ExecutorConfig::default_const().node_name(nros_generated::SYSTEM.default_node_name());
+#[cfg(feature = "platform-freertos")]
+use panic_semihosting as _;
+
+fn run_system(config: ExecutorConfig<'_>) -> core::result::Result<(), nros::NodeError> {
     nros_generated::register_backends();
     let mut executor = Executor::open(&config)?;
     let mut callback_handles = CallbackHandleTable::<{ nros_generated::CALLBACK_COUNT }>::new();
@@ -39,4 +40,28 @@ fn main() -> Result<(), nros::NodeError> {
 
     #[cfg(not(feature = "std"))]
     executor.spin_default()
+}
+
+#[cfg(not(feature = "platform-freertos"))]
+fn main() -> core::result::Result<(), nros::NodeError> {
+    #[cfg(feature = "std")]
+    let config = ExecutorConfig::from_env().node_name(nros_generated::SYSTEM.default_node_name());
+    #[cfg(not(feature = "std"))]
+    let config =
+        ExecutorConfig::default_const().node_name(nros_generated::SYSTEM.default_node_name());
+    run_system(config)
+}
+
+#[cfg(feature = "platform-freertos")]
+#[unsafe(no_mangle)]
+extern "C" fn _start() -> ! {
+    nros_board_mps2_an385_freertos::run(
+        nros_board_mps2_an385_freertos::Config::default(),
+        |board_config| {
+            let config = ExecutorConfig::new(board_config.zenoh_locator)
+                .domain_id(board_config.domain_id)
+                .node_name(nros_generated::SYSTEM.default_node_name());
+            run_system(config)
+        },
+    )
 }

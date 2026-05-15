@@ -152,6 +152,44 @@ fn generated_package_features_follow_rtos_plan() {
 }
 
 #[test]
+fn generated_package_wires_freertos_entry() {
+    let root = temp_output("generated_package_wires_freertos_entry");
+    fs::create_dir_all(&root).expect("create temp plan dir");
+    let plan_path = root.join("nros-plan.json");
+    let plan = include_str!("fixtures/orchestration/plan_pub_sub.json")
+        .replace(
+            "\"target\": \"x86_64-unknown-linux-gnu\"",
+            "\"target\": \"thumbv7m-none-eabi\"",
+        )
+        .replace("\"board\": \"native\"", "\"board\": \"freertos\"");
+    fs::write(&plan_path, plan).expect("write FreeRTOS plan");
+
+    let output_dir = root.join("generated");
+    generate_plan(
+        "generated_package_wires_freertos_entry",
+        plan_path,
+        output_dir.clone(),
+    );
+
+    let cargo_toml = fs::read_to_string(output_dir.join("Cargo.toml")).expect("read Cargo.toml");
+    assert!(cargo_toml.contains(
+        "default = [\"nros/platform-freertos\", \"platform-freertos\", \"nros/rmw-cffi\", \"nros-orchestration/rmw-cffi\", \"nros/rmw-zenoh-cffi\"]"
+    ));
+    assert!(cargo_toml.contains("nros-board-mps2-an385-freertos"));
+    assert!(cargo_toml.contains("panic-semihosting"));
+
+    let cargo_config =
+        fs::read_to_string(output_dir.join(".cargo/config.toml")).expect("read cargo config");
+    assert!(cargo_config.contains("[target.thumbv7m-none-eabi]"));
+    assert!(cargo_config.contains("mps2_an385.ld"));
+
+    let main_rs = fs::read_to_string(output_dir.join("src/main.rs")).expect("read main.rs");
+    assert!(main_rs.contains("#![cfg_attr(feature = \"platform-freertos\", no_std)]"));
+    assert!(main_rs.contains("extern \"C\" fn _start() -> !"));
+    assert!(main_rs.contains("nros_board_mps2_an385_freertos::run"));
+}
+
+#[test]
 fn generated_package_is_readable_by_cargo_metadata() {
     let output_dir =
         generate_workspace_backed_fixture("generated_package_cargo_metadata", "plan_pub_sub.json");

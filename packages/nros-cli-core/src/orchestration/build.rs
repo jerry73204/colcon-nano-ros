@@ -3,6 +3,7 @@
 use super::generate::{GenerateOptions, GeneratedPackage, generate_package};
 use super::{NrosPlan, plan::PlanBuildOptions};
 use eyre::{Context, Result, eyre};
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -21,6 +22,7 @@ pub struct BuildOptions {
 
 pub fn build_generated_package(options: &BuildOptions) -> Result<GeneratedPackage> {
     let plan = load_plan(&options.plan_path)?;
+    write_interface_cache(&options.output_dir, &plan)?;
     let generated = generate_package(&GenerateOptions {
         package_name: options.package_name.clone(),
         output_dir: options.output_dir.clone(),
@@ -42,7 +44,8 @@ pub fn build_generated_package(options: &BuildOptions) -> Result<GeneratedPackag
         &options.cargo_args,
     ))
     .stdout(Stdio::inherit())
-    .stderr(Stdio::inherit());
+    .stderr(Stdio::inherit())
+    .current_dir(&generated.root);
 
     let status = cmd
         .status()
@@ -55,6 +58,46 @@ pub fn build_generated_package(options: &BuildOptions) -> Result<GeneratedPackag
     }
 
     Ok(generated)
+}
+
+#[derive(Serialize)]
+struct InterfaceCacheManifest<'a> {
+    schema: &'static str,
+    system: &'a str,
+    generated_by: &'a str,
+    interfaces: &'a [super::plan::PlanInterface],
+}
+
+fn write_interface_cache(generated_dir: &Path, plan: &NrosPlan) -> Result<()> {
+    let Some(system_dir) = generated_dir.parent() else {
+        return Ok(());
+    };
+    let interfaces_dir = system_dir.join("interfaces");
+    let manifest = serde_json::to_string_pretty(&InterfaceCacheManifest {
+        schema: "nano-ros/interface-cache/v1",
+        system: &plan.system,
+        generated_by: &plan.trace.generated_by,
+        interfaces: &plan.interfaces,
+    })?;
+
+    for lang in ["rust", "c", "cpp"] {
+        let lang_dir = interfaces_dir.join(lang);
+        fs::create_dir_all(&lang_dir).wrap_err_with(|| {
+            format!(
+                "failed to create generated interface cache dir {}",
+                lang_dir.display()
+            )
+        })?;
+        write_if_changed(&lang_dir.join("manifest.json"), &manifest)?;
+    }
+    Ok(())
+}
+
+fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
+    if fs::read_to_string(path).ok().as_deref() == Some(contents) {
+        return Ok(());
+    }
+    fs::write(path, contents).wrap_err_with(|| format!("failed to write {}", path.display()))
 }
 
 fn load_plan(path: &Path) -> Result<NrosPlan> {

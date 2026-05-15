@@ -9,7 +9,10 @@ use std::{
 };
 
 use nros_cli_core::cmd::{build, check, metadata, plan};
-use nros_cli_core::orchestration::{plan::NrosPlan, schema::ParameterValue};
+use nros_cli_core::orchestration::{
+    plan::{NrosPlan, PlanEntity},
+    schema::ParameterValue,
+};
 use serde_json::Value;
 
 #[test]
@@ -81,6 +84,23 @@ fn fixture_workspace_plans_checks_and_builds_generated_package() {
 
     assert!(generated_dir.join("Cargo.toml").is_file());
     assert!(generated_dir.join("src/main.rs").is_file());
+    for lang in ["rust", "c", "cpp"] {
+        let manifest_path = out_dir.join("interfaces").join(lang).join("manifest.json");
+        let manifest: Value = serde_json::from_str(
+            &fs::read_to_string(&manifest_path)
+                .unwrap_or_else(|error| panic!("read {}: {error}", manifest_path.display())),
+        )
+        .unwrap_or_else(|error| panic!("parse {}: {error}", manifest_path.display()));
+        assert_eq!(
+            manifest["schema"].as_str(),
+            Some("nano-ros/interface-cache/v1")
+        );
+        assert_eq!(manifest["system"].as_str(), Some("e2e_system"));
+        assert_eq!(
+            manifest["interfaces"][0]["id"].as_str(),
+            Some("std_msgs/msg/String")
+        );
+    }
 
     let binary = out_dir
         .join("target")
@@ -96,6 +116,39 @@ fn fixture_workspace_plans_checks_and_builds_generated_package() {
     let port = free_local_port();
     let _zenohd = start_zenohd(port);
     assert_generated_binary_spins(&binary, port);
+
+    let multi_plan_path = out_dir.join("nros-plan-multi-instance.json");
+    let mut multi_plan = plan.clone();
+    add_second_instance(&mut multi_plan);
+    fs::write(
+        &multi_plan_path,
+        serde_json::to_string_pretty(&multi_plan).expect("serialize multi-instance plan"),
+    )
+    .expect("write multi-instance plan");
+    check::run(check::Args {
+        plan: multi_plan_path.clone(),
+    })
+    .expect("check command validates generated multi-instance plan");
+    let multi_generated_dir = out_dir.join("generated-multi");
+    build::run(build::Args {
+        project: Some(fixture_workspace()),
+        system_plan: Some(multi_plan_path),
+        system_output: Some(multi_generated_dir.clone()),
+        system_package: Some("nros-e2e-generated-multi".to_string()),
+        nano_ros_workspace: Some(nano_ros_workspace()),
+        release: false,
+        target: None,
+        passthrough: Vec::new(),
+    })
+    .expect("build command compiles generated multi-instance package");
+    assert!(
+        multi_generated_dir
+            .join("../target")
+            .join(&multi_plan.build.target)
+            .join("debug")
+            .join("nros-e2e-generated-multi")
+            .is_file()
+    );
 }
 
 fn fixture_workspace() -> PathBuf {
@@ -116,6 +169,78 @@ fn nano_ros_workspace() -> PathBuf {
         .nth(4)
         .expect("nano-ros workspace ancestor")
         .to_path_buf()
+}
+
+fn add_second_instance(plan: &mut NrosPlan) {
+    let mut instance = plan.instances[0].clone();
+    let old_instance_id = instance.id.clone();
+    let new_instance_id = "talker_clone";
+    instance.id = new_instance_id.to_string();
+    instance.launch_name = "talker_clone".to_string();
+    instance.namespace = "/clone".to_string();
+    for node in &mut instance.nodes {
+        let old_node_id = node.id.clone();
+        node.id = node.id.replacen(&old_instance_id, new_instance_id, 1);
+        node.resolved_name = "/clone/talker".to_string();
+        node.namespace = "/clone".to_string();
+        for entity in &mut node.entities {
+            rewrite_entity_id(entity, &old_instance_id, new_instance_id);
+        }
+        for parameter in &mut instance.parameters {
+            if parameter.node == old_node_id {
+                parameter.node = node.id.clone();
+            }
+        }
+    }
+    for callback in &mut instance.callbacks {
+        callback.id = callback.id.replacen(&old_instance_id, new_instance_id, 1);
+    }
+    for binding in &mut instance.sched_bindings {
+        binding.callback = binding
+            .callback
+            .replacen(&old_instance_id, new_instance_id, 1);
+    }
+    for interface in &mut plan.interfaces {
+        let extra = interface
+            .used_by
+            .iter()
+            .filter(|entity| entity.starts_with(&old_instance_id))
+            .map(|entity| entity.replacen(&old_instance_id, new_instance_id, 1))
+            .collect::<Vec<_>>();
+        interface.used_by.extend(extra);
+        interface.used_by.sort();
+        interface.used_by.dedup();
+    }
+    plan.instances.push(instance);
+}
+
+fn rewrite_entity_id(entity: &mut PlanEntity, old_instance_id: &str, new_instance_id: &str) {
+    match entity {
+        PlanEntity::Publisher {
+            id, resolved_name, ..
+        }
+        | PlanEntity::Subscriber {
+            id, resolved_name, ..
+        }
+        | PlanEntity::ServiceServer {
+            id, resolved_name, ..
+        }
+        | PlanEntity::ServiceClient {
+            id, resolved_name, ..
+        }
+        | PlanEntity::ActionServer {
+            id, resolved_name, ..
+        }
+        | PlanEntity::ActionClient {
+            id, resolved_name, ..
+        } => {
+            *id = id.replacen(old_instance_id, new_instance_id, 1);
+            *resolved_name = resolved_name.replacen("/talker", "/clone/talker", 1);
+        }
+        PlanEntity::Timer { id, .. } => {
+            *id = id.replacen(old_instance_id, new_instance_id, 1);
+        }
+    }
 }
 
 struct ChildGuard(Child);
