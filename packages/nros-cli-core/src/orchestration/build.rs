@@ -33,6 +33,7 @@ pub fn build_generated_package(options: &BuildOptions) -> Result<GeneratedPackag
     let mut cmd = Command::new("cargo");
     cmd.args(generated_cargo_args(
         &generated.manifest_path,
+        &generated_target_dir(&generated.root),
         &plan.build,
         options.release,
         options.target.as_deref(),
@@ -62,6 +63,7 @@ fn load_plan(path: &Path) -> Result<NrosPlan> {
 
 fn generated_cargo_args(
     manifest_path: &Path,
+    target_dir: &Path,
     build: &PlanBuildOptions,
     release_override: bool,
     target_override: Option<&str>,
@@ -71,6 +73,8 @@ fn generated_cargo_args(
         "build".to_string(),
         "--manifest-path".to_string(),
         manifest_path.display().to_string(),
+        "--target-dir".to_string(),
+        target_dir.display().to_string(),
     ];
 
     match target_override {
@@ -96,13 +100,20 @@ fn generated_cargo_args(
     args
 }
 
+fn generated_target_dir(generated_root: &Path) -> PathBuf {
+    generated_root
+        .parent()
+        .map(|parent| parent.join("target"))
+        .unwrap_or_else(|| generated_root.join("target"))
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use crate::orchestration::NrosPlan;
 
-    use super::generated_cargo_args;
+    use super::{generated_cargo_args, generated_target_dir};
 
     fn fixture_plan(name: &str) -> NrosPlan {
         let raw = std::fs::read_to_string(
@@ -123,6 +134,7 @@ mod tests {
         assert_eq!(
             generated_cargo_args(
                 PathBuf::from("/tmp/generated/Cargo.toml").as_path(),
+                PathBuf::from("/tmp/target").as_path(),
                 &plan.build,
                 false,
                 None,
@@ -132,6 +144,8 @@ mod tests {
                 "build",
                 "--manifest-path",
                 "/tmp/generated/Cargo.toml",
+                "--target-dir",
+                "/tmp/target",
                 "--target",
                 "x86_64-unknown-linux-gnu",
                 "--release",
@@ -146,6 +160,7 @@ mod tests {
         assert_eq!(
             generated_cargo_args(
                 PathBuf::from("/tmp/generated/Cargo.toml").as_path(),
+                PathBuf::from("/tmp/target").as_path(),
                 &plan.build,
                 false,
                 Some("thumbv7em-none-eabihf"),
@@ -155,6 +170,8 @@ mod tests {
                 "build",
                 "--manifest-path",
                 "/tmp/generated/Cargo.toml",
+                "--target-dir",
+                "/tmp/target",
                 "--target",
                 "thumbv7em-none-eabihf",
                 "--release",
@@ -172,6 +189,7 @@ mod tests {
         assert_eq!(
             generated_cargo_args(
                 PathBuf::from("/tmp/generated/Cargo.toml").as_path(),
+                PathBuf::from("/tmp/target").as_path(),
                 &plan.build,
                 false,
                 None,
@@ -181,11 +199,21 @@ mod tests {
                 "build",
                 "--manifest-path",
                 "/tmp/generated/Cargo.toml",
+                "--target-dir",
+                "/tmp/target",
                 "--target",
                 "x86_64-unknown-linux-gnu",
                 "--profile",
                 "size",
             ]
+        );
+    }
+
+    #[test]
+    fn generated_target_dir_matches_system_layout() {
+        assert_eq!(
+            generated_target_dir(PathBuf::from("/tmp/system/nros/generated").as_path()),
+            PathBuf::from("/tmp/system/nros/target")
         );
     }
 }
