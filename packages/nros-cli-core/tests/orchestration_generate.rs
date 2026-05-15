@@ -74,10 +74,15 @@ fn generated_package_writes_manifest_build_script_and_main() {
 
     let main_rs = fs::read_to_string(output_dir.join("src/main.rs")).expect("read main.rs");
     assert!(main_rs.contains("Executor::open"));
+    assert!(main_rs.contains("#[cfg(feature = \"std\")]"));
+    assert!(main_rs.contains("ExecutorConfig::from_env()"));
+    assert!(main_rs.contains("#[cfg(not(feature = \"std\"))]"));
+    assert!(main_rs.contains("ExecutorConfig::default_const()"));
     assert!(main_rs.contains("create_sched_context(spec.to_nros_node())"));
     assert!(main_rs.contains("instantiate_components"));
     assert!(main_rs.contains("bind_handle_to_sched_context"));
     assert!(main_rs.contains("spin_blocking(SpinOptions::default())"));
+    assert!(main_rs.contains("spin_default()"));
 }
 
 #[test]

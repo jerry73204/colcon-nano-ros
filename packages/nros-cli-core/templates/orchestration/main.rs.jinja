@@ -6,7 +6,11 @@ use nros::prelude::*;
 use nros_orchestration::CallbackHandleTable;
 
 fn main() -> Result<(), nros::NodeError> {
+    #[cfg(feature = "std")]
     let config = ExecutorConfig::from_env().node_name(nros_generated::SYSTEM.default_node_name());
+    #[cfg(not(feature = "std"))]
+    let config =
+        ExecutorConfig::default_const().node_name(nros_generated::SYSTEM.default_node_name());
     let mut executor = Executor::open(&config)?;
     let mut callback_handles = CallbackHandleTable::<{ nros_generated::CALLBACK_COUNT }>::new();
 
@@ -29,5 +33,9 @@ fn main() -> Result<(), nros::NodeError> {
         executor.bind_handle_to_sched_context(handle, sched_context)?;
     }
 
-    executor.spin_blocking(SpinOptions::default())
+    #[cfg(feature = "std")]
+    return executor.spin_blocking(SpinOptions::default());
+
+    #[cfg(not(feature = "std"))]
+    executor.spin_default()
 }
