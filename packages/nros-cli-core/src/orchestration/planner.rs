@@ -523,16 +523,23 @@ fn schema_instance(instance: &Value) -> Value {
         .get("node_name")
         .and_then(Value::as_str)
         .unwrap_or(executable);
-    let entities = instance
+    let source_nodes = instance
+        .get("nodes")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_else(|| {
+            vec![json!({
+                "id": "node",
+                "resolved_name": launch_name,
+                "namespace": namespace,
+            })]
+        });
+    let raw_entities = instance
         .get("entities")
         .and_then(Value::as_array)
-        .map(|entities| {
-            entities
-                .iter()
-                .filter_map(|entity| schema_entity(id, entity))
-                .collect::<Vec<_>>()
-        })
+        .cloned()
         .unwrap_or_default();
+    let nodes = schema_nodes(id, &source_nodes, &raw_entities);
     let callbacks = schema_callbacks(id, instance.get("callbacks"));
     let sched_bindings = schema_sched_bindings(&callbacks);
     json!({
@@ -543,13 +550,7 @@ fn schema_instance(instance: &Value) -> Value {
         "launch_name": launch_name,
         "namespace": namespace,
         "remaps": schema_remaps(instance.get("remaps")),
-        "nodes": [{
-            "id": format!("{id}/node"),
-            "source_node": "node",
-            "resolved_name": launch_name,
-            "namespace": namespace,
-            "entities": entities,
-        }],
+        "nodes": nodes,
         "callbacks": callbacks,
         "parameters": schema_parameters(id, instance.get("parameters")),
         "sched_bindings": sched_bindings,
@@ -558,6 +559,33 @@ fn schema_instance(instance: &Value) -> Value {
             "source_metadata": instance.get("source_metadata").and_then(Value::as_str).unwrap_or(""),
         },
     })
+}
+
+fn schema_nodes(instance_id: &str, source_nodes: &[Value], entities: &[Value]) -> Vec<Value> {
+    source_nodes
+        .iter()
+        .map(|node| {
+            let source_node = node.get("id").and_then(Value::as_str).unwrap_or("node");
+            let node_entities = entities
+                .iter()
+                .filter(|entity| {
+                    entity
+                        .get("source_node")
+                        .and_then(Value::as_str)
+                        .unwrap_or("node")
+                        == source_node
+                })
+                .filter_map(|entity| schema_entity(instance_id, entity))
+                .collect::<Vec<_>>();
+            json!({
+                "id": format!("{instance_id}/{source_node}"),
+                "source_node": source_node,
+                "resolved_name": node.get("resolved_name").and_then(Value::as_str).unwrap_or(""),
+                "namespace": node.get("namespace").and_then(Value::as_str).unwrap_or("/"),
+                "entities": node_entities,
+            })
+        })
+        .collect()
 }
 
 fn schema_callbacks(instance_id: &str, value: Option<&Value>) -> Vec<Value> {
@@ -921,6 +949,21 @@ fn build_node_instance(
             )
         })
         .unwrap_or_default();
+    let nodes = source_metadata
+        .map(|artifact| {
+            source_nodes(
+                &artifact.value,
+                &namespace,
+                node_name.trim_start_matches('/'),
+            )
+        })
+        .unwrap_or_else(|| {
+            vec![json!({
+                "id": "node",
+                "resolved_name": node_name,
+                "namespace": namespace,
+            })]
+        });
     let callbacks = source_metadata
         .map(|artifact| source_callbacks(&artifact.value))
         .unwrap_or_default();
@@ -944,6 +987,7 @@ fn build_node_instance(
         "remaps": remaps,
         "parameters": parameters,
         "source_metadata": source_metadata.map(|artifact| artifact.path.to_string_lossy().to_string()),
+        "nodes": nodes,
         "entities": entities,
         "callbacks": callbacks,
     })
@@ -1099,6 +1143,54 @@ fn source_callbacks(metadata: &Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
+fn source_nodes(metadata: &Value, launch_namespace: &str, launch_node_name: &str) -> Vec<Value> {
+    let Some(nodes) = metadata.get("nodes").and_then(Value::as_array) else {
+        return vec![json!({
+            "id": "node",
+            "resolved_name": names::node_fqn(Some(launch_namespace), Some(launch_node_name), launch_node_name),
+            "namespace": launch_namespace,
+        })];
+    };
+    let single_node = nodes.len() == 1;
+    nodes
+        .iter()
+        .map(|node| {
+            let source_node = node.get("id").and_then(Value::as_str).unwrap_or("node");
+            let metadata_namespace = node
+                .get("namespace")
+                .and_then(Value::as_str)
+                .unwrap_or(launch_namespace);
+            let source_name = source_name_value(node.get("unresolved_name"));
+            let resolved_name = if single_node {
+                names::node_fqn(
+                    Some(launch_namespace),
+                    Some(launch_node_name),
+                    launch_node_name,
+                )
+            } else {
+                names::node_fqn(Some(metadata_namespace), Some(source_name), source_node)
+            };
+            let namespace = node_namespace(&resolved_name);
+            json!({
+                "id": source_node,
+                "resolved_name": resolved_name,
+                "namespace": namespace,
+            })
+        })
+        .collect()
+}
+
+fn node_namespace(resolved_name: &str) -> String {
+    let Some((namespace, _)) = resolved_name.rsplit_once('/') else {
+        return "/".to_string();
+    };
+    if namespace.is_empty() {
+        "/".to_string()
+    } else {
+        namespace.to_string()
+    }
+}
+
 fn source_entities(
     metadata: &Value,
     path: &Path,
@@ -1192,14 +1284,26 @@ fn collect_schema_nodes(
     let Some(Value::Array(nodes)) = value else {
         return;
     };
+    let single_node = nodes.len() == 1;
     for node in nodes {
+        let source_node = node.get("id").and_then(Value::as_str).unwrap_or("node");
+        let metadata_namespace = node
+            .get("namespace")
+            .and_then(Value::as_str)
+            .unwrap_or(namespace);
+        let metadata_node_name = if single_node {
+            node_name
+        } else {
+            source_name_value(node.get("unresolved_name"))
+        };
         collect_schema_endpoint_array(
             node.get("publishers"),
             "publisher",
             "unresolved_topic",
             path,
-            namespace,
-            node_name,
+            source_node,
+            metadata_namespace,
+            metadata_node_name,
             remaps,
             out,
         );
@@ -1208,8 +1312,9 @@ fn collect_schema_nodes(
             "subscriber",
             "unresolved_topic",
             path,
-            namespace,
-            node_name,
+            source_node,
+            metadata_namespace,
+            metadata_node_name,
             remaps,
             out,
         );
@@ -1218,8 +1323,9 @@ fn collect_schema_nodes(
             "service_server",
             "unresolved_name",
             path,
-            namespace,
-            node_name,
+            source_node,
+            metadata_namespace,
+            metadata_node_name,
             remaps,
             out,
         );
@@ -1228,12 +1334,13 @@ fn collect_schema_nodes(
             "action_server",
             "unresolved_name",
             path,
-            namespace,
-            node_name,
+            source_node,
+            metadata_namespace,
+            metadata_node_name,
             remaps,
             out,
         );
-        collect_schema_timer_array(node.get("timers"), path, out);
+        collect_schema_timer_array(node.get("timers"), path, source_node, out);
     }
 }
 
@@ -1243,6 +1350,7 @@ fn collect_schema_endpoint_array(
     role: &str,
     name_key: &str,
     path: &Path,
+    source_node: &str,
     namespace: &str,
     node_name: &str,
     remaps: &[(String, String)],
@@ -1256,6 +1364,7 @@ fn collect_schema_endpoint_array(
         let resolved = names::resolve_entity_name(namespace, node_name, source_name, remaps);
         out.push(json!({
             "source_artifact": path,
+            "source_node": source_node,
             "source_id": item.get("id"),
             "role": role,
             "source_name": resolved.source,
@@ -1270,13 +1379,19 @@ fn collect_schema_endpoint_array(
     }
 }
 
-fn collect_schema_timer_array(value: Option<&Value>, path: &Path, out: &mut Vec<Value>) {
+fn collect_schema_timer_array(
+    value: Option<&Value>,
+    path: &Path,
+    source_node: &str,
+    out: &mut Vec<Value>,
+) {
     let Some(Value::Array(items)) = value else {
         return;
     };
     for item in items {
         out.push(json!({
             "source_artifact": path,
+            "source_node": source_node,
             "source_id": item.get("id"),
             "role": "timer",
             "period_ms": item.get("period_ms"),
@@ -1313,6 +1428,7 @@ fn collect_entity_array(
         let resolved = names::resolve_entity_name(namespace, node_name, source_name, remaps);
         out.push(json!({
             "source_artifact": path,
+            "source_node": "node",
             "source_id": item.get("id"),
             "role": normalize_role(role),
             "source_name": resolved.source,
@@ -2067,6 +2183,86 @@ topics:
 
         assert!(err.contains("entity-callback-missing"), "{err}");
         assert!(err.contains("cb_missing"), "{err}");
+    }
+
+    #[test]
+    fn plan_system_preserves_multiple_source_nodes() {
+        let root = temp_workspace("nros-plan-multiple-source-nodes");
+        let output = plan_with_metadata(
+            &root,
+            r#"{
+  "version": 1,
+  "package": "demo_pkg",
+  "component": "talker",
+  "language": "rust",
+  "executable": "talker",
+  "exported_symbol": null,
+  "nodes": [
+    {
+      "id": "node_talker",
+      "unresolved_name": {"value": "talker", "kind": "relative"},
+      "namespace": null,
+      "publishers": [{
+        "id": "pub_chatter",
+        "unresolved_topic": {"value": "chatter", "kind": "relative"},
+        "interface": {"package": "std_msgs", "name": "msg/String", "kind": "message"},
+        "qos": null
+      }],
+      "subscribers": [],
+      "timers": [],
+      "services": [],
+      "actions": []
+    },
+    {
+      "id": "node_aux",
+      "unresolved_name": {"value": "aux", "kind": "relative"},
+      "namespace": null,
+      "publishers": [],
+      "subscribers": [],
+      "timers": [],
+      "services": [{
+        "id": "srv_reset",
+        "unresolved_name": {"value": "reset", "kind": "relative"},
+        "interface": {"package": "std_srvs", "name": "srv/Trigger", "kind": "service"},
+        "callback": "cb_reset"
+      }],
+      "actions": [{
+        "id": "act_nav",
+        "unresolved_name": {"value": "navigate", "kind": "relative"},
+        "interface": {"package": "nav2_msgs", "name": "action/NavigateToPose", "kind": "action"},
+        "goal_callback": "cb_nav_goal",
+        "cancel_callback": "cb_nav_cancel",
+        "accepted_callback": "cb_nav_accepted"
+      }]
+    }
+  ],
+  "callbacks": [
+    {"id": "cb_reset", "kind": "service", "group": null, "effects": [{"kind": "sends_service_reply", "entity": "srv_reset"}], "source": {"artifact": "src/lib.rs", "line": 10, "column": 1}},
+    {"id": "cb_nav_goal", "kind": "action_goal", "group": null, "effects": [{"kind": "sends_action_goal", "entity": "act_nav"}], "source": {"artifact": "src/lib.rs", "line": 20, "column": 1}},
+    {"id": "cb_nav_cancel", "kind": "action_cancel", "group": null, "effects": [], "source": {"artifact": "src/lib.rs", "line": 30, "column": 1}},
+    {"id": "cb_nav_accepted", "kind": "action_accepted", "group": null, "effects": [{"kind": "sends_action_result", "entity": "act_nav"}], "source": {"artifact": "src/lib.rs", "line": 40, "column": 1}}
+  ],
+  "parameters": [],
+  "trace": {"generator": "nros-metadata-rust", "package_manifest": "package.xml", "source_artifacts": ["src/lib.rs"]}
+}"#,
+        )
+        .unwrap();
+        let plan: Value =
+            serde_json::from_str(&fs::read_to_string(output.plan_path).unwrap()).unwrap();
+        serde_json::from_value::<NrosPlan>(plan.clone()).unwrap();
+
+        let nodes = plan["instances"][0]["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 2);
+        assert_eq!(nodes[0]["source_node"], "node_talker");
+        assert_eq!(nodes[0]["resolved_name"], "/talker");
+        assert_eq!(
+            nodes[0]["entities"][0]["id"],
+            "demo_pkg.talker.0/pub_chatter"
+        );
+        assert_eq!(nodes[1]["source_node"], "node_aux");
+        assert_eq!(nodes[1]["resolved_name"], "/aux");
+        assert_eq!(nodes[1]["entities"][0]["role"], "service_server");
+        assert_eq!(nodes[1]["entities"][1]["role"], "action_server");
     }
 
     fn plan_with_metadata(root: &Path, metadata_json: &str) -> Result<PlanningOutput> {
