@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{
-    NrosPlan,
+    ComponentConfig, NrosPlan,
     plan::{PlanBuildOptions, PlanEntity, PlanInstance, PlanSchedContext},
     schema::{DeadlinePolicy, ParameterValue, SchedClass},
 };
@@ -99,9 +99,38 @@ fn render_build_rs(options: &GenerateOptions, plan: &NrosPlan) -> String {
     BUILD_TEMPLATE
         .replace("{{ plan_path }}", &path_for_template(&options.plan_path))
         .replace(
+            "{{ native_link_directives }}",
+            &render_native_link_directives(options, plan),
+        )
+        .replace(
             "{{ generated_tables_literal }}",
             &format!("{generated_tables:?}"),
         )
+}
+
+#[derive(Debug, Clone)]
+struct NativeComponentLink {
+    component_id: String,
+    library_path: PathBuf,
+}
+
+fn render_native_link_directives(options: &GenerateOptions, plan: &NrosPlan) -> String {
+    native_component_links(options, plan)
+        .into_iter()
+        .map(|link| {
+            let search_dir = link
+                .library_path
+                .parent()
+                .map(path_for_template)
+                .unwrap_or_default();
+            let lib_name = static_library_name(&link.library_path)
+                .unwrap_or_else(|| link.component_id.replace([':', '-'], "_"));
+            format!(
+                "    println!(\"cargo:rerun-if-changed={}\");\n    println!(\"cargo:rustc-link-search=native={search_dir}\");\n    println!(\"cargo:rustc-link-lib=static={lib_name}\");\n",
+                path_for_template(&link.library_path),
+            )
+        })
+        .collect()
 }
 
 fn render_cargo_config(plan: &NrosPlan) -> Option<String> {
@@ -150,6 +179,57 @@ fn render_component_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> 
             )
         })
         .collect()
+}
+
+fn native_component_links(options: &GenerateOptions, plan: &NrosPlan) -> Vec<NativeComponentLink> {
+    plan.components
+        .iter()
+        .filter(|component| !matches!(component.language.as_str(), "rust" | "Rust"))
+        .filter_map(|component| {
+            let config_path = component.component_config.as_deref().and_then(|path| {
+                resolve_workspace_path(options.component_workspace.as_deref(), path)
+            });
+            let library_path = config_path
+                .as_deref()
+                .and_then(|path| component_static_library(path).ok().flatten())?;
+            Some(NativeComponentLink {
+                component_id: component.id.clone(),
+                library_path,
+            })
+        })
+        .collect()
+}
+
+fn resolve_workspace_path(workspace: Option<&Path>, raw: &str) -> Option<PathBuf> {
+    let path = PathBuf::from(raw);
+    if path.is_absolute() {
+        return Some(path);
+    }
+    workspace.map(|workspace| workspace.join(path))
+}
+
+fn component_static_library(config_path: &Path) -> Result<Option<PathBuf>> {
+    let raw = fs::read_to_string(config_path)
+        .wrap_err_with(|| format!("failed to read {}", config_path.display()))?;
+    let config: ComponentConfig = toml::from_str(&raw)
+        .wrap_err_with(|| format!("failed to parse {}", config_path.display()))?;
+    Ok(config.linkage.static_library.map(|raw| {
+        let path = PathBuf::from(raw);
+        if path.is_absolute() {
+            path
+        } else {
+            config_path
+                .parent()
+                .map(|parent| parent.join(&path))
+                .unwrap_or(path)
+        }
+    }))
+}
+
+fn static_library_name(path: &Path) -> Option<String> {
+    let stem = path.file_name()?.to_str()?;
+    let stem = stem.strip_suffix(".a").unwrap_or(stem);
+    Some(stem.strip_prefix("lib").unwrap_or(stem).to_string())
 }
 
 fn render_platform_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> String {
@@ -360,6 +440,7 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
         plan.sched_contexts.len()
     ));
     render_backend_register_fn(&mut out, plan);
+    render_native_component_ffi(&mut out, plan);
     render_components(&mut out, plan);
     render_instances(&mut out, plan);
     render_nodes(&mut out, plan);
@@ -419,6 +500,12 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
                     id = component.id,
                 ));
             }
+        } else {
+            let fn_name = native_register_fn_name(&component.id);
+            out.push_str(&format!(
+                "            {id:?} => unsafe {{ {fn_name}(&mut node_runtime) }}?,\n",
+                id = component.id,
+            ));
         }
     }
     out.push_str("            _ => return Err(nros::NodeError::NotInitialized),\n");
@@ -434,6 +521,58 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
     out
+}
+
+fn render_native_component_ffi(out: &mut String, plan: &NrosPlan) {
+    let native_components = plan
+        .components
+        .iter()
+        .filter(|component| !matches!(component.language.as_str(), "rust" | "Rust"))
+        .collect::<Vec<_>>();
+    if native_components.is_empty() {
+        return;
+    }
+
+    out.push_str("use core::ffi::{c_char, c_void, CStr};\n\n");
+    out.push_str("#[repr(C)]\nstruct NrosCComponentNodeOptions { name: *const c_char, namespace_: *const c_char, domain_id: u32 }\n");
+    out.push_str("#[repr(C)]\nstruct NrosCComponentNode { stable_id: *const c_char, runtime_handle: *mut c_void, context: *mut NrosCComponentContext }\n");
+    out.push_str("#[repr(C)]\nstruct NrosCComponentEntityDescriptor { stable_id: *const c_char, node_id: *const c_char, kind: i32, source_name: *const c_char, type_name: *const c_char, type_hash: *const c_char, callback_id: *const c_char }\n");
+    out.push_str("#[repr(C)]\nstruct NrosCComponentContextOps { create_node: Option<unsafe extern \"C\" fn(*mut c_void, *const c_char, *const NrosCComponentNodeOptions, *mut NrosCComponentNode) -> i32>, create_entity: Option<unsafe extern \"C\" fn(*mut c_void, *const NrosCComponentEntityDescriptor) -> i32>, record_callback_effect: Option<unsafe extern \"C\" fn(*mut c_void, *const c_char, i32, *const c_char) -> i32> }\n");
+    out.push_str("#[repr(C)]\nstruct NrosCComponentContext { user_data: *mut c_void, ops: *const NrosCComponentContextOps }\n\n");
+    out.push_str("const NROS_RET_OK: i32 = 0;\nconst NROS_RET_INVALID_ARGUMENT: i32 = -3;\n\n");
+    out.push_str("static NROS_C_COMPONENT_OPS: NrosCComponentContextOps = NrosCComponentContextOps { create_node: Some(nros_c_component_create_node), create_entity: Some(nros_c_component_create_entity), record_callback_effect: Some(nros_c_component_record_callback_effect) };\n\n");
+    out.push_str("unsafe extern \"C\" fn nros_c_component_create_node(user_data: *mut c_void, stable_id: *const c_char, options: *const NrosCComponentNodeOptions, out_node: *mut NrosCComponentNode) -> i32 {\n");
+    out.push_str("    if user_data.is_null() || stable_id.is_null() || options.is_null() || out_node.is_null() { return NROS_RET_INVALID_ARGUMENT; }\n");
+    out.push_str(
+        "    let runtime = unsafe { &mut *(user_data as *mut GeneratedNodeRuntime<'_>) };\n",
+    );
+    out.push_str("    let stable_id = match unsafe { c_str_to_str(stable_id) } { Some(value) => value, None => return NROS_RET_INVALID_ARGUMENT };\n");
+    out.push_str("    let options = unsafe { &*options };\n");
+    out.push_str("    if options.name.is_null() || options.namespace_.is_null() { return NROS_RET_INVALID_ARGUMENT; }\n");
+    out.push_str("    let name = match unsafe { c_str_to_str(options.name) } { Some(value) => value, None => return NROS_RET_INVALID_ARGUMENT };\n");
+    out.push_str("    let namespace = match unsafe { c_str_to_str(options.namespace_) } { Some(value) => value, None => return NROS_RET_INVALID_ARGUMENT };\n");
+    out.push_str("    let options = nros::NodeOptions::new(name).namespace(namespace).domain_id(options.domain_id);\n");
+    out.push_str("    match nros::ComponentNodeRuntime::build_component_node(runtime, nros::NodeId(stable_id), options) { Ok(_) => { unsafe { (*out_node).stable_id = core::ptr::null(); (*out_node).runtime_handle = core::ptr::null_mut(); (*out_node).context = core::ptr::null_mut(); } NROS_RET_OK }, Err(_) => NROS_RET_INVALID_ARGUMENT }\n");
+    out.push_str("}\n\n");
+    out.push_str("unsafe extern \"C\" fn nros_c_component_create_entity(_user_data: *mut c_void, _descriptor: *const NrosCComponentEntityDescriptor) -> i32 { NROS_RET_OK }\n");
+    out.push_str("unsafe extern \"C\" fn nros_c_component_record_callback_effect(_user_data: *mut c_void, _callback_id: *const c_char, _kind: i32, _entity_id: *const c_char) -> i32 { NROS_RET_OK }\n\n");
+    out.push_str("unsafe fn c_str_to_str<'a>(ptr: *const c_char) -> Option<&'a str> { unsafe { CStr::from_ptr(ptr) }.to_str().ok() }\n\n");
+    out.push_str("unsafe extern \"C\" {\n");
+    for component in &native_components {
+        out.push_str(&format!(
+            "    #[link_name = {symbol:?}]\n    fn {fn_name}(context: *mut NrosCComponentContext) -> i32;\n",
+            symbol = component.component,
+            fn_name = native_symbol_fn_name(&component.id),
+        ));
+    }
+    out.push_str("}\n\n");
+    for component in &native_components {
+        out.push_str(&format!(
+            "unsafe fn {fn_name}(runtime: &mut GeneratedNodeRuntime<'_>) -> Result<(), nros::NodeError> {{\n    let mut context = NrosCComponentContext {{ user_data: runtime as *mut _ as *mut c_void, ops: &NROS_C_COMPONENT_OPS }};\n    let status = unsafe {{ {symbol_fn}(&mut context) }};\n    if status == NROS_RET_OK {{ Ok(()) }} else {{ Err(nros::NodeError::NotInitialized) }}\n}}\n\n",
+            fn_name = native_register_fn_name(&component.id),
+            symbol_fn = native_symbol_fn_name(&component.id),
+        ));
+    }
 }
 
 fn render_backend_register_fn(out: &mut String, plan: &NrosPlan) {
@@ -729,6 +868,38 @@ fn rust_component_type_path(component_id: &str) -> Option<String> {
     let crate_name = parts.next()?;
     let module = parts.next()?;
     Some(format!("{crate_name}::{module}::Component"))
+}
+
+fn native_register_fn_name(component_id: &str) -> String {
+    format!("register_native_component_{}", rust_ident(component_id))
+}
+
+fn native_symbol_fn_name(component_id: &str) -> String {
+    format!("nros_native_symbol_{}", rust_ident(component_id))
+}
+
+fn rust_ident(raw: &str) -> String {
+    let mut ident = raw
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    while ident.contains("__") {
+        ident = ident.replace("__", "_");
+    }
+    if ident
+        .chars()
+        .next()
+        .is_none_or(|ch| !ch.is_ascii_alphabetic() && ch != '_')
+    {
+        ident.insert(0, '_');
+    }
+    ident
 }
 
 fn final_node_name(resolved_name: &str, namespace: &str) -> String {

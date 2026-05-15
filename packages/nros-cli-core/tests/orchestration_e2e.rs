@@ -10,7 +10,7 @@ use std::{
 
 use nros_cli_core::cmd::{build, check, metadata, plan};
 use nros_cli_core::orchestration::{
-    plan::{NrosPlan, PlanEntity},
+    plan::{NrosPlan, PlanComponent, PlanEntity},
     schema::ParameterValue,
 };
 use serde_json::Value;
@@ -198,6 +198,124 @@ fn fixture_workspace_builds_and_boots_generated_freertos_package() {
     assert_freertos_binary_boots(&binary);
 }
 
+#[test]
+fn fixture_workspace_links_mixed_c_component_archive() {
+    let fixture = fixture_workspace();
+    let output = temp_output("orchestration_e2e_mixed_c");
+    let out_dir = output.join("build/e2e_system/nros");
+    let generated_dir = out_dir.join("generated-mixed-c");
+    let plan_path = out_dir.join("nros-plan-mixed-c.json");
+    fs::create_dir_all(&out_dir).expect("create mixed C output dir");
+
+    let archive = build_native_counter_archive(&output, "c_counter", "counter.c", "cc");
+    let component_config = output.join("c_counter.nros.toml");
+    write_native_component_config(
+        &component_config,
+        "c_counter",
+        "nros_component_counter",
+        "c",
+        &archive,
+        "c_counter.metadata.json",
+    );
+    let source_metadata = output.join("c_counter.metadata.json");
+    write_native_source_metadata(
+        &source_metadata,
+        "c_counter",
+        "nros_component_counter",
+        "c",
+        "counter_node",
+        "counter",
+        "/c",
+    );
+
+    let cpp_archive = build_native_counter_archive(&output, "cpp_counter", "counter.cpp", "c++");
+    let cpp_component_config = output.join("cpp_counter.nros.toml");
+    write_native_component_config(
+        &cpp_component_config,
+        "cpp_counter",
+        "nros_component_cpp_counter",
+        "cpp",
+        &cpp_archive,
+        "cpp_counter.metadata.json",
+    );
+    let cpp_source_metadata = output.join("cpp_counter.metadata.json");
+    write_native_source_metadata(
+        &cpp_source_metadata,
+        "cpp_counter",
+        "nros_component_cpp_counter",
+        "cpp",
+        "cpp_counter_node",
+        "cpp_counter",
+        "/cpp",
+    );
+
+    let mut plan = fixture_plan("plan_multi_instance.json");
+    retarget_plan_to_fixture_component(&mut plan);
+    add_native_counter_component(
+        &mut plan,
+        "c_counter",
+        "c_counter::counter",
+        "nros_component_counter",
+        "c",
+        "counter",
+        "/c",
+        "counter_node",
+        &component_config,
+        &source_metadata,
+    );
+    add_native_counter_component(
+        &mut plan,
+        "cpp_counter",
+        "cpp_counter::counter",
+        "nros_component_cpp_counter",
+        "cpp",
+        "cpp_counter",
+        "/cpp",
+        "cpp_counter_node",
+        &cpp_component_config,
+        &cpp_source_metadata,
+    );
+    fs::write(
+        &plan_path,
+        serde_json::to_string_pretty(&plan).expect("serialize mixed C plan"),
+    )
+    .expect("write mixed C plan");
+
+    check::run(check::Args {
+        plan: plan_path.clone(),
+    })
+    .expect("check command validates generated mixed C plan");
+    build::run(build::Args {
+        project: Some(fixture),
+        system_plan: Some(plan_path),
+        system_output: Some(generated_dir.clone()),
+        system_package: Some("nros-e2e-generated-mixed-c".to_string()),
+        nano_ros_workspace: Some(nano_ros_workspace()),
+        release: false,
+        target: None,
+        passthrough: Vec::new(),
+    })
+    .expect("build command links generated package with C component archive");
+
+    let build_rs = fs::read_to_string(generated_dir.join("build.rs")).expect("read build.rs");
+    assert!(build_rs.contains("cargo:rustc-link-lib=static=c_counter"));
+    assert!(build_rs.contains("cargo:rustc-link-lib=static=cpp_counter"));
+    let binary = out_dir
+        .join("target")
+        .join(&plan.build.target)
+        .join(if plan.build.profile == "release" {
+            "release"
+        } else {
+            "debug"
+        })
+        .join("nros-e2e-generated-mixed-c");
+    assert!(
+        binary.is_file(),
+        "generated mixed C binary exists at {}",
+        binary.display()
+    );
+}
+
 fn fixture_workspace() -> PathBuf {
     codegen_root().join("testing_workspaces/orchestration_e2e")
 }
@@ -290,6 +408,149 @@ fn add_second_instance(plan: &mut NrosPlan) {
         interface.used_by.dedup();
     }
     plan.instances.push(instance);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_native_counter_component(
+    plan: &mut NrosPlan,
+    package: &str,
+    component_id: &str,
+    symbol: &str,
+    language: &str,
+    executable: &str,
+    namespace: &str,
+    source_node: &str,
+    config: &Path,
+    metadata: &Path,
+) {
+    plan.components.push(PlanComponent {
+        id: component_id.to_string(),
+        package: package.to_string(),
+        component: symbol.to_string(),
+        language: language.to_string(),
+        source_metadata: metadata.display().to_string(),
+        component_config: Some(config.display().to_string()),
+    });
+
+    let mut instance = plan.instances[0].clone();
+    instance.id = package.to_string();
+    instance.component = component_id.to_string();
+    instance.package = package.to_string();
+    instance.executable = executable.to_string();
+    instance.launch_name = executable.to_string();
+    instance.namespace = namespace.to_string();
+    instance.parameters.clear();
+    instance.callbacks.clear();
+    instance.sched_bindings.clear();
+    instance.trace.source_metadata = metadata.display().to_string();
+    instance.trace.launch_record_entity = package.to_string();
+    instance.nodes.truncate(1);
+    let node = &mut instance.nodes[0];
+    node.id = format!("{package}/{source_node}");
+    node.source_node = source_node.to_string();
+    node.resolved_name = format!("{namespace}/{executable}");
+    node.namespace = namespace.to_string();
+    node.entities.clear();
+    plan.instances.push(instance);
+}
+
+fn write_native_component_config(
+    path: &Path,
+    package: &str,
+    symbol: &str,
+    language: &str,
+    archive: &Path,
+    source_metadata: &str,
+) {
+    fs::write(
+        path,
+        format!(
+            r#"version = 1
+package = "{package}"
+component = "{symbol}"
+language = "{language}"
+
+[linkage]
+crate_name = ""
+executable = ""
+exported_symbol = "{symbol}"
+static_library = "{}"
+
+[metadata]
+source_metadata = "{source_metadata}"
+
+[overrides]
+parameters = {{}}
+remaps = []
+"#,
+            archive.display()
+        ),
+    )
+    .expect("write native component config");
+}
+
+fn write_native_source_metadata(
+    path: &Path,
+    package: &str,
+    symbol: &str,
+    language: &str,
+    node_id: &str,
+    node_name: &str,
+    namespace: &str,
+) {
+    fs::write(
+        path,
+        format!(
+            r#"{{
+  "version": 1,
+  "package": "{package}",
+  "component": "{symbol}",
+  "language": "{language}",
+  "executable": null,
+  "exported_symbol": "{symbol}",
+  "nodes": [
+    {{
+      "id": "{node_id}",
+      "name": "{node_name}",
+      "namespace": "{namespace}",
+      "entities": [],
+      "parameters": []
+    }}
+  ],
+  "callbacks": []
+}}"#
+        ),
+    )
+    .expect("write native source metadata");
+}
+
+fn build_native_counter_archive(
+    output: &Path,
+    package: &str,
+    source_file: &str,
+    compiler: &str,
+) -> PathBuf {
+    let build_dir = output.join(format!("{package}_build"));
+    fs::create_dir_all(&build_dir).expect("create native counter build dir");
+    let object = build_dir.join("counter.o");
+    let archive = build_dir.join(format!("lib{package}.a"));
+    let source = fixture_workspace().join("src").join(package).join(source_file);
+    let cc_status = Command::new(compiler)
+        .arg("-c")
+        .arg(&source)
+        .arg("-o")
+        .arg(&object)
+        .status()
+        .unwrap_or_else(|error| panic!("compile {package} fixture: {error}"));
+    assert!(cc_status.success(), "compile {package} fixture failed");
+    let ar_status = Command::new("ar")
+        .arg("crs")
+        .arg(&archive)
+        .arg(&object)
+        .status()
+        .unwrap_or_else(|error| panic!("archive {package} fixture: {error}"));
+    assert!(ar_status.success(), "archive {package} fixture failed");
+    archive
 }
 
 fn rewrite_entity_id(entity: &mut PlanEntity, old_instance_id: &str, new_instance_id: &str) {
