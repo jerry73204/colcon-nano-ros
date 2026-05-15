@@ -74,6 +74,7 @@ pub fn run(args: Args) -> Result<()> {
             output_dir,
             plan_path,
             workspace_root,
+            component_workspace: Some(root.clone()),
             release: args.release,
             target: args.target,
             cargo_args: args.passthrough,

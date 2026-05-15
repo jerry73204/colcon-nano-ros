@@ -5,6 +5,7 @@
 //! host-side adapter that will be tightened once that schema lands.
 
 use eyre::{Context, Result};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -25,6 +26,7 @@ pub struct GenerateOptions {
     pub plan_path: PathBuf,
     pub nros_path: PathBuf,
     pub nros_orchestration_path: PathBuf,
+    pub component_workspace: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +72,10 @@ fn render_cargo_toml(options: &GenerateOptions, plan: &NrosPlan) -> String {
             "{{ nros_orchestration_path }}",
             &path_for_template(&options.nros_orchestration_path),
         )
+        .replace(
+            "{{ component_dependencies }}",
+            &render_component_dependencies(options, plan),
+        )
 }
 
 fn render_build_rs(options: &GenerateOptions, plan: &NrosPlan) -> String {
@@ -86,6 +92,32 @@ fn path_for_template(path: &Path) -> String {
     path.to_string_lossy()
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
+}
+
+fn render_component_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> String {
+    let Some(workspace) = &options.component_workspace else {
+        return String::new();
+    };
+    let mut deps = BTreeMap::new();
+    for component in plan
+        .components
+        .iter()
+        .filter(|component| matches!(component.language.as_str(), "rust" | "Rust"))
+    {
+        let crate_name = rust_crate_name(component.id.as_str()).unwrap_or(&component.package);
+        let package_root = workspace.join("src").join(&component.package);
+        if package_root.join("Cargo.toml").is_file() {
+            deps.insert(crate_name.to_string(), package_root);
+        }
+    }
+    deps.into_iter()
+        .map(|(crate_name, path)| {
+            format!(
+                "{crate_name} = {{ path = \"{}\", default-features = false }}\n",
+                path_for_template(&path)
+            )
+        })
+        .collect()
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
@@ -219,7 +251,7 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     let max_interfaces = plan.interfaces.len();
 
     let mut out = String::new();
-    out.push_str("use nros_orchestration::{CallbackBindingSpec, CapacitySpec, ComponentLanguage, PlanId, SchedClassSpec, SchedContextSpec, SystemSpec};\n");
+    out.push_str("use nros_orchestration::{CallbackBindingSpec, CapacitySpec, ComponentLanguage, NodeSpec, PlanId, SchedClassSpec, SchedContextSpec, SystemSpec};\n");
     out.push_str("use nros_orchestration::{CallbackHandleTable, ComponentSpec, InstanceSpec, ParameterSpec, ParameterValue};\n");
     out.push_str("use nros_orchestration::{DeadlinePolicySpec, PrioritySpec};\n\n");
     out.push_str(&format!(
@@ -231,6 +263,7 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     ));
     render_components(&mut out, plan);
     render_instances(&mut out, plan);
+    render_nodes(&mut out, plan);
     render_parameters(&mut out, plan);
     out.push_str(&format!(
         "pub static SCHED_CONTEXTS: [SchedContextSpec; {}] = [\n",
@@ -252,10 +285,45 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     }
     out.push_str("];\n\n");
     out.push_str(&format!(
-        "pub static SYSTEM: SystemSpec = SystemSpec {{ schema: {schema:?}, plan_id: PlanId({plan_id}), capacities: CapacitySpec {{ max_nodes: {max_nodes}, max_callbacks: {callback_count}, max_sched_contexts: {max_sched_contexts}, max_parameters: {max_parameters}, max_interfaces: {max_interfaces} }}, components: &COMPONENTS, instances: &INSTANCES, parameters: &PARAMETERS, sched_contexts: &SCHED_CONTEXTS, callback_bindings: &CALLBACK_BINDINGS }};\n\n",
+        "pub static SYSTEM: SystemSpec = SystemSpec {{ schema: {schema:?}, plan_id: PlanId({plan_id}), capacities: CapacitySpec {{ max_nodes: {max_nodes}, max_callbacks: {callback_count}, max_sched_contexts: {max_sched_contexts}, max_parameters: {max_parameters}, max_interfaces: {max_interfaces} }}, components: &COMPONENTS, instances: &INSTANCES, nodes: &NODES, parameters: &PARAMETERS, sched_contexts: &SCHED_CONTEXTS, callback_bindings: &CALLBACK_BINDINGS }};\n\n",
         plan_id = stable_plan_id(plan),
     ));
-    out.push_str("pub fn instantiate_components(_executor: &mut nros::Executor, _handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
+    out.push_str("struct GeneratedNodeRuntime<'a> {\n");
+    out.push_str("    executor: &'a mut nros::Executor,\n");
+    out.push_str("    instance: &'static InstanceSpec,\n");
+    out.push_str("}\n\n");
+    out.push_str("impl nros::ComponentNodeRuntime for GeneratedNodeRuntime<'_> {\n");
+    out.push_str(
+        "    type NodeHandle = <nros::Executor as nros::ComponentNodeRuntime>::NodeHandle;\n\n",
+    );
+    out.push_str("    fn build_component_node(&mut self, id: nros::NodeId<'_>, options: nros::NodeOptions<'_>) -> nros::ComponentResult<Self::NodeHandle> {\n");
+    out.push_str("        let planned = NODES.iter().find(|node| node.instance_id == self.instance.id && node.source_node == id.as_str());\n");
+    out.push_str(
+        "        let name = planned.map(|node| node.node_name).unwrap_or(options.name);\n",
+    );
+    out.push_str("        let namespace = planned.map(|node| node.namespace).unwrap_or(options.namespace);\n");
+    out.push_str("        let domain_id = planned.and_then(|node| node.domain_id).unwrap_or(options.domain_id);\n");
+    out.push_str("        self.executor.node_builder(name).namespace(namespace).domain_id(domain_id).build().map_err(|_| nros::ComponentError::Runtime)\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+    out.push_str("pub fn instantiate_components(executor: &mut nros::Executor, _handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
+    out.push_str("    for instance in INSTANCES.iter() {\n");
+    out.push_str("        let mut node_runtime = GeneratedNodeRuntime { executor, instance };\n");
+    out.push_str("        let mut runtime = nros::ComponentRuntimeAdapter::<_, MAX_NODES, MAX_ENTITIES, CALLBACK_COUNT>::new(&mut node_runtime);\n");
+    out.push_str("        match instance.component_id {\n");
+    for component in &plan.components {
+        if matches!(component.language.as_str(), "rust" | "Rust") {
+            if let Some(path) = rust_component_type_path(&component.id) {
+                out.push_str(&format!(
+                    "            {id:?} => nros::register_component::<{path}>(&mut runtime).map_err(|_| nros::NodeError::NotInitialized)?,\n",
+                    id = component.id,
+                ));
+            }
+        }
+    }
+    out.push_str("            _ => return Err(nros::NodeError::NotInitialized),\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
     out
@@ -298,6 +366,44 @@ fn render_instances(out: &mut String, plan: &NrosPlan) {
             namespace = instance.namespace,
         ));
         parameter_start += parameter_len;
+    }
+    out.push_str("];\n\n");
+}
+
+fn render_nodes(out: &mut String, plan: &NrosPlan) {
+    let node_count = plan
+        .instances
+        .iter()
+        .map(|instance| instance.nodes.len())
+        .sum::<usize>();
+    out.push_str(&format!("pub const MAX_NODES: usize = {node_count};\n"));
+    let max_entities = plan
+        .instances
+        .iter()
+        .map(|instance| {
+            instance
+                .nodes
+                .iter()
+                .map(|node| node.entities.len())
+                .sum::<usize>()
+        })
+        .max()
+        .unwrap_or(0);
+    out.push_str(&format!(
+        "pub const MAX_ENTITIES: usize = {max_entities};\n"
+    ));
+    out.push_str(&format!("pub static NODES: [NodeSpec; {node_count}] = [\n"));
+    for instance in &plan.instances {
+        for node in &instance.nodes {
+            let node_name = final_node_name(&node.resolved_name, &node.namespace);
+            out.push_str(&format!(
+                "    NodeSpec {{ instance_id: {instance_id:?}, node_id: {node_id:?}, source_node: {source_node:?}, node_name: {node_name:?}, namespace: {namespace:?}, domain_id: None }},\n",
+                instance_id = instance.id,
+                node_id = node.id,
+                source_node = node.source_node,
+                namespace = node.namespace,
+            ));
+        }
     }
     out.push_str("];\n\n");
 }
@@ -372,6 +478,42 @@ fn component_language(raw: &str) -> &'static str {
         "cpp" | "c++" | "Cpp" => "Cpp",
         _ => "Rust",
     }
+}
+
+fn rust_crate_name(component_id: &str) -> Option<&str> {
+    component_id
+        .split("::")
+        .next()
+        .filter(|name| !name.is_empty())
+}
+
+fn rust_component_type_path(component_id: &str) -> Option<String> {
+    let mut parts = component_id.split("::").filter(|part| !part.is_empty());
+    let crate_name = parts.next()?;
+    let module = parts.next()?;
+    Some(format!("{crate_name}::{module}::Component"))
+}
+
+fn final_node_name(resolved_name: &str, namespace: &str) -> String {
+    let trimmed = resolved_name.trim_matches('/');
+    if trimmed.is_empty() {
+        return "node".to_string();
+    }
+    let namespace = namespace.trim_matches('/');
+    if !namespace.is_empty() {
+        if let Some(stripped) = trimmed.strip_prefix(namespace) {
+            let stripped = stripped.trim_matches('/');
+            if !stripped.is_empty() {
+                return stripped.to_string();
+            }
+        }
+    }
+    trimmed
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
 }
 
 fn render_parameter_value(value: &ParameterValue) -> Option<String> {

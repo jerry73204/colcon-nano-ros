@@ -13,6 +13,7 @@ pub struct BuildOptions {
     pub output_dir: PathBuf,
     pub plan_path: PathBuf,
     pub workspace_root: PathBuf,
+    pub component_workspace: Option<PathBuf>,
     pub release: bool,
     pub target: Option<String>,
     pub cargo_args: Vec<String>,
@@ -28,6 +29,7 @@ pub fn build_generated_package(options: &BuildOptions) -> Result<GeneratedPackag
         nros_orchestration_path: options
             .workspace_root
             .join("packages/core/nros-orchestration"),
+        component_workspace: options.component_workspace.clone(),
     })?;
 
     let mut cmd = Command::new("cargo");

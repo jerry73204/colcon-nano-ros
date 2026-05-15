@@ -33,6 +33,7 @@ fn generate_plan(name: &str, plan_path: PathBuf, output_dir: PathBuf) {
         plan_path,
         nros_path: PathBuf::from("/workspace/packages/core/nros"),
         nros_orchestration_path: PathBuf::from("/workspace/packages/core/nros-orchestration"),
+        component_workspace: None,
     })
     .unwrap_or_else(|error| panic!("{name} generated package writes: {error:?}"));
 }
@@ -54,6 +55,7 @@ fn generate_workspace_backed_fixture(name: &str, plan_fixture: &str) -> PathBuf 
         plan_path: fixture(plan_fixture),
         nros_path: root.join("packages/core/nros"),
         nros_orchestration_path: root.join("packages/core/nros-orchestration"),
+        component_workspace: None,
     })
     .unwrap_or_else(|error| panic!("{name} generated package writes: {error:?}"));
     output_dir
@@ -84,10 +86,14 @@ fn generated_package_writes_manifest_build_script_and_main() {
     assert!(build_rs.contains("pub const SCHED_CONTEXT_COUNT: usize = 1;"));
     assert!(build_rs.contains("pub static COMPONENTS: [ComponentSpec; 2]"));
     assert!(build_rs.contains("pub static INSTANCES: [InstanceSpec; 2]"));
+    assert!(build_rs.contains("pub static NODES: [NodeSpec; 2]"));
     assert!(build_rs.contains("pub static PARAMETERS: [ParameterSpec; 1]"));
     assert!(build_rs.contains("pub static SCHED_CONTEXTS: [SchedContextSpec; 1]"));
     assert!(build_rs.contains("pub static CALLBACK_BINDINGS: [CallbackBindingSpec; 2]"));
     assert!(build_rs.contains("pub static SYSTEM: SystemSpec"));
+    assert!(build_rs.contains("GeneratedNodeRuntime"));
+    assert!(build_rs.contains("register_component::<demo_nodes_rs::talker::Component>"));
+    assert!(build_rs.contains("register_component::<demo_nodes_rs::listener::Component>"));
     assert!(build_rs.contains("PlanId("));
     assert!(build_rs.contains("SchedClassSpec::Fifo"));
     assert!(build_rs.contains("PrioritySpec::BestEffort"));
@@ -178,6 +184,7 @@ fn generated_package_output_is_stable() {
         plan_path: fixture("plan_pub_sub.json"),
         nros_path: PathBuf::from("/workspace/packages/core/nros"),
         nros_orchestration_path: PathBuf::from("/workspace/packages/core/nros-orchestration"),
+        component_workspace: None,
     })
     .expect("second generated package write");
 
