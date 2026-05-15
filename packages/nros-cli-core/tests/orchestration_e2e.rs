@@ -151,6 +151,53 @@ fn fixture_workspace_plans_checks_and_builds_generated_package() {
     );
 }
 
+#[test]
+fn fixture_workspace_builds_and_boots_generated_freertos_package() {
+    let fixture = fixture_workspace();
+    let output = temp_output("orchestration_e2e_freertos");
+    let out_dir = output.join("build/e2e_system/nros");
+    let generated_dir = out_dir.join("generated-freertos");
+    let plan_path = out_dir.join("nros-plan-freertos.json");
+    fs::create_dir_all(&out_dir).expect("create FreeRTOS output dir");
+
+    let mut plan = fixture_plan("plan_multi_instance.json");
+    retarget_plan_to_fixture_component(&mut plan);
+    retarget_plan_to_freertos(&mut plan);
+    fs::write(
+        &plan_path,
+        serde_json::to_string_pretty(&plan).expect("serialize FreeRTOS plan"),
+    )
+    .expect("write FreeRTOS plan");
+
+    check::run(check::Args {
+        plan: plan_path.clone(),
+    })
+    .expect("check command validates generated FreeRTOS plan");
+    build::run(build::Args {
+        project: Some(fixture),
+        system_plan: Some(plan_path),
+        system_output: Some(generated_dir.clone()),
+        system_package: Some("nros-e2e-generated-freertos".to_string()),
+        nano_ros_workspace: Some(nano_ros_workspace()),
+        release: false,
+        target: None,
+        passthrough: Vec::new(),
+    })
+    .expect("build command compiles generated FreeRTOS package");
+
+    let binary = out_dir
+        .join("target")
+        .join("thumbv7m-none-eabi")
+        .join("release")
+        .join("nros-e2e-generated-freertos");
+    assert!(
+        binary.is_file(),
+        "generated FreeRTOS binary exists at {}",
+        binary.display()
+    );
+    assert_freertos_binary_boots(&binary);
+}
+
 fn fixture_workspace() -> PathBuf {
     codegen_root().join("testing_workspaces/orchestration_e2e")
 }
@@ -169,6 +216,37 @@ fn nano_ros_workspace() -> PathBuf {
         .nth(4)
         .expect("nano-ros workspace ancestor")
         .to_path_buf()
+}
+
+fn fixture_plan(name: &str) -> NrosPlan {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/orchestration")
+        .join(name);
+    serde_json::from_str(&fs::read_to_string(&path).expect("read plan fixture"))
+        .unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
+}
+
+fn retarget_plan_to_fixture_component(plan: &mut NrosPlan) {
+    for component in &mut plan.components {
+        if component.id == "demo_nodes_rs::talker" {
+            component.id = "demo_pkg::talker".to_string();
+            component.package = "demo_pkg".to_string();
+            component.component = "talker".to_string();
+        }
+    }
+    for instance in &mut plan.instances {
+        if instance.component == "demo_nodes_rs::talker" {
+            instance.component = "demo_pkg::talker".to_string();
+            instance.package = "demo_pkg".to_string();
+        }
+    }
+}
+
+fn retarget_plan_to_freertos(plan: &mut NrosPlan) {
+    plan.build.target = "thumbv7m-none-eabi".to_string();
+    plan.build.board = "freertos".to_string();
+    plan.build.rmw = "zenoh".to_string();
+    plan.build.profile = "release".to_string();
 }
 
 fn add_second_instance(plan: &mut NrosPlan) {
@@ -241,6 +319,41 @@ fn rewrite_entity_id(entity: &mut PlanEntity, old_instance_id: &str, new_instanc
             *id = id.replacen(old_instance_id, new_instance_id, 1);
         }
     }
+}
+
+fn assert_freertos_binary_boots(binary: &Path) {
+    let output = Command::new("timeout")
+        .arg("8s")
+        .arg("qemu-system-arm")
+        .args([
+            "-cpu",
+            "cortex-m3",
+            "-machine",
+            "mps2-an385",
+            "-nographic",
+            "-semihosting-config",
+            "enable=on,target=native",
+            "-kernel",
+        ])
+        .arg(binary)
+        .output()
+        .unwrap_or_else(|error| panic!("run qemu-system-arm for {}: {error}", binary.display()));
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.status.code() == Some(124) || output.status.success(),
+        "generated FreeRTOS binary exited unexpectedly with {:?}\n{}",
+        output.status,
+        combined
+    );
+    assert!(
+        combined.contains("nros QEMU FreeRTOS Platform"),
+        "generated FreeRTOS binary did not print platform banner\n{}",
+        combined
+    );
 }
 
 struct ChildGuard(Child);
