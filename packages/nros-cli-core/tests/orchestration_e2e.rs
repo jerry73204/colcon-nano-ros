@@ -316,6 +316,61 @@ fn fixture_workspace_links_mixed_c_component_archive() {
     );
 }
 
+#[test]
+fn fixture_workspace_builds_generated_service_action_package() {
+    let fixture = fixture_workspace();
+    let output = temp_output("orchestration_e2e_service_action");
+    let out_dir = output.join("build/e2e_system/nros");
+    let generated_dir = out_dir.join("generated-service-action");
+    let plan_path = out_dir.join("nros-plan-service-action.json");
+    fs::create_dir_all(&out_dir).expect("create service/action output dir");
+
+    let mut plan = fixture_plan("plan_service_action.json");
+    retarget_plan_to_fixture_component(&mut plan);
+    fs::write(
+        &plan_path,
+        serde_json::to_string_pretty(&plan).expect("serialize service/action plan"),
+    )
+    .expect("write service/action plan");
+
+    check::run(check::Args {
+        plan: plan_path.clone(),
+    })
+    .expect("check command validates generated service/action plan");
+    build::run(build::Args {
+        project: Some(fixture),
+        system_plan: Some(plan_path),
+        system_output: Some(generated_dir.clone()),
+        system_package: Some("nros-e2e-generated-service-action".to_string()),
+        nano_ros_workspace: Some(nano_ros_workspace()),
+        release: false,
+        target: None,
+        passthrough: Vec::new(),
+    })
+    .expect("build command compiles generated service/action package");
+
+    let generated_tables =
+        fs::read_to_string(generated_dir.join("build.rs")).expect("read generated build.rs");
+    assert!(generated_tables.contains("register_service_raw_sized_on::<1024, 1024>"));
+    assert!(
+        generated_tables.contains("register_action_server_raw_sized_on::<1024, 1024, 1024, 4>")
+    );
+    let binary = out_dir
+        .join("target")
+        .join(&plan.build.target)
+        .join(if plan.build.profile == "release" {
+            "release"
+        } else {
+            "debug"
+        })
+        .join("nros-e2e-generated-service-action");
+    assert!(
+        binary.is_file(),
+        "generated service/action binary exists at {}",
+        binary.display()
+    );
+}
+
 fn fixture_workspace() -> PathBuf {
     codegen_root().join("testing_workspaces/orchestration_e2e")
 }
@@ -534,7 +589,10 @@ fn build_native_counter_archive(
     fs::create_dir_all(&build_dir).expect("create native counter build dir");
     let object = build_dir.join("counter.o");
     let archive = build_dir.join(format!("lib{package}.a"));
-    let source = fixture_workspace().join("src").join(package).join(source_file);
+    let source = fixture_workspace()
+        .join("src")
+        .join(package)
+        .join(source_file);
     let cc_status = Command::new(compiler)
         .arg("-c")
         .arg(&source)

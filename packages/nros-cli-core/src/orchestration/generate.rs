@@ -429,8 +429,11 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     let max_interfaces = plan.interfaces.len();
 
     let mut out = String::new();
+    out.push_str("#[allow(unused_imports)]\n");
     out.push_str("use nros_orchestration::{CallbackBindingSpec, CapacitySpec, ComponentLanguage, NodeSpec, PlanId, SchedClassSpec, SchedContextSpec, SystemSpec};\n");
+    out.push_str("#[allow(unused_imports)]\n");
     out.push_str("use nros_orchestration::{CallbackHandleTable, ComponentSpec, InstanceSpec, ParameterSpec, ParameterValue};\n");
+    out.push_str("#[allow(unused_imports)]\n");
     out.push_str("use nros_orchestration::{DeadlinePolicySpec, PrioritySpec};\n\n");
     out.push_str(&format!(
         "pub const CALLBACK_COUNT: usize = {callback_count};\n"
@@ -486,7 +489,14 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     out.push_str("        self.executor.node_builder(name).namespace(namespace).domain_id(domain_id).build().map_err(|_| nros::ComponentError::Runtime)\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
-    out.push_str("unsafe extern \"C\" fn noop_raw_subscription(_data: *const u8, _len: usize, _context: *mut core::ffi::c_void) {}\n\n");
+    out.push_str("#[allow(dead_code)]\nunsafe extern \"C\" fn noop_raw_subscription(_data: *const u8, _len: usize, _context: *mut core::ffi::c_void) {}\n");
+    out.push_str("#[allow(dead_code)]\nunsafe extern \"C\" fn noop_raw_service(_req: *const u8, _req_len: usize, _resp: *mut u8, _resp_cap: usize, resp_len: *mut usize, _context: *mut core::ffi::c_void) -> bool {\n");
+    out.push_str("    if !resp_len.is_null() { unsafe { *resp_len = 0; } }\n");
+    out.push_str("    true\n");
+    out.push_str("}\n");
+    out.push_str("#[allow(dead_code)]\nunsafe extern \"C\" fn noop_raw_goal(_goal_id: *const nros::GoalId, _goal_data: *const u8, _goal_len: usize, _context: *mut core::ffi::c_void) -> nros::GoalResponse { nros::GoalResponse::AcceptAndDefer }\n");
+    out.push_str("#[allow(dead_code)]\nunsafe extern \"C\" fn noop_raw_cancel(_goal_id: *const nros::GoalId, _status: nros::GoalStatus, _context: *mut core::ffi::c_void) -> nros::CancelResponse { nros::CancelResponse::Rejected }\n");
+    out.push_str("#[allow(dead_code)]\nunsafe extern \"C\" fn noop_raw_accepted(_goal_id: *const nros::GoalId, _context: *mut core::ffi::c_void) {}\n\n");
     out.push_str("pub fn instantiate_components(executor: &mut nros::Executor, handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
     out.push_str("    for instance in INSTANCES.iter() {\n");
     out.push_str("        let mut node_runtime = GeneratedNodeRuntime { executor, instance };\n");
@@ -739,6 +749,54 @@ fn render_callback_registrations(plan: &NrosPlan) -> Vec<String> {
                         "    handles.set({callback_index}, handle_{callback_index}).map_err(|_| nros::NodeError::InvalidSchedContextBinding)?;\n"
                     ));
                 }
+                Some((
+                    node_id,
+                    PlanEntity::ServiceServer {
+                        resolved_name,
+                        interface,
+                        ..
+                    },
+                )) => {
+                    out.push(format!(
+                        "    let node_{callback_index} = NODES.iter().find(|node| node.node_id == {node_id:?}).ok_or(nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                    out.push(format!(
+                        "    let node_handle_{callback_index} = executor.node_id_by_name(node_{callback_index}.node_name, node_{callback_index}.namespace).ok_or(nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                    out.push(format!(
+                        "    let handle_{callback_index} = executor.register_service_raw_sized_on::<1024, 1024>(node_handle_{callback_index}, {service:?}, {type_name:?}, {type_hash:?}, noop_raw_service, core::ptr::null_mut())?;\n",
+                        service = resolved_name,
+                        type_name = interface_type_name(interface),
+                        type_hash = interface_type_hash(interface),
+                    ));
+                    out.push(format!(
+                        "    handles.set({callback_index}, handle_{callback_index}).map_err(|_| nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                }
+                Some((
+                    node_id,
+                    PlanEntity::ActionServer {
+                        resolved_name,
+                        interface,
+                        ..
+                    },
+                )) => {
+                    out.push(format!(
+                        "    let node_{callback_index} = NODES.iter().find(|node| node.node_id == {node_id:?}).ok_or(nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                    out.push(format!(
+                        "    let node_handle_{callback_index} = executor.node_id_by_name(node_{callback_index}.node_name, node_{callback_index}.namespace).ok_or(nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                    out.push(format!(
+                        "    let action_{callback_index} = executor.register_action_server_raw_sized_on::<1024, 1024, 1024, 4>(node_handle_{callback_index}, {action:?}, {type_name:?}, {type_hash:?}, noop_raw_goal, noop_raw_cancel, Some(noop_raw_accepted), core::ptr::null_mut())?;\n",
+                        action = resolved_name,
+                        type_name = interface_type_name(interface),
+                        type_hash = interface_type_hash(interface),
+                    ));
+                    out.push(format!(
+                        "    handles.set({callback_index}, action_{callback_index}.handle_id()).map_err(|_| nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                }
                 _ => {
                     out.push(format!(
                         "    return Err(nros::NodeError::NotInitialized); // unsupported generated callback: {:?}\n",
@@ -781,10 +839,66 @@ fn find_callback_entity<'a>(
     }) {
         return Some(entity);
     }
+    if let Some(entity) = callback_entities
+        .iter()
+        .copied()
+        .find(|(_, entity)| entity_matches_callback_text(entity, source_callback))
+    {
+        return Some(entity);
+    }
     if callback_entities.len() == 1 {
         return callback_entities.first().copied();
     }
     None
+}
+
+fn entity_matches_callback_text(entity: &PlanEntity, source_callback: &str) -> bool {
+    let text = match entity {
+        PlanEntity::Publisher {
+            id,
+            source_entity,
+            resolved_name,
+            ..
+        }
+        | PlanEntity::Subscriber {
+            id,
+            source_entity,
+            resolved_name,
+            ..
+        }
+        | PlanEntity::ServiceServer {
+            id,
+            source_entity,
+            resolved_name,
+            ..
+        }
+        | PlanEntity::ServiceClient {
+            id,
+            source_entity,
+            resolved_name,
+            ..
+        }
+        | PlanEntity::ActionServer {
+            id,
+            source_entity,
+            resolved_name,
+            ..
+        }
+        | PlanEntity::ActionClient {
+            id,
+            source_entity,
+            resolved_name,
+            ..
+        } => format!("{id} {source_entity} {resolved_name}"),
+        PlanEntity::Timer {
+            id, source_entity, ..
+        } => format!("{id} {source_entity}"),
+    };
+    source_callback
+        .trim_start_matches("cb_")
+        .split('_')
+        .filter(|token| token.len() > 2)
+        .any(|token| text.contains(token))
 }
 
 fn entity_callback_id(entity: &PlanEntity) -> Option<&str> {

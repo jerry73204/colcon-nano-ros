@@ -190,6 +190,51 @@ fn generated_package_wires_freertos_entry() {
 }
 
 #[test]
+fn generated_package_registers_service_and_action_callbacks() {
+    let output_dir = generate_fixture(
+        "generated_package_registers_service_and_action_callbacks",
+        "plan_service_action.json",
+    );
+    let build_rs = fs::read_to_string(output_dir.join("build.rs")).expect("read build.rs");
+
+    assert!(build_rs.contains("pub const CALLBACK_COUNT: usize = 2;"));
+    assert!(build_rs.contains("noop_raw_service"));
+    assert!(build_rs.contains("noop_raw_goal"));
+    assert!(build_rs.contains("noop_raw_cancel"));
+    assert!(build_rs.contains("noop_raw_accepted"));
+    assert!(build_rs.contains("register_service_raw_sized_on::<1024, 1024>"));
+    assert!(build_rs.contains("register_action_server_raw_sized_on::<1024, 1024, 1024, 4>"));
+    assert!(build_rs.contains("action_1.handle_id()"));
+    assert!(!build_rs.contains("unsupported generated callback"));
+}
+
+#[test]
+fn generated_service_action_package_is_readable_by_cargo_metadata() {
+    let output_dir = generate_workspace_backed_fixture(
+        "generated_service_action_package_is_readable_by_cargo_metadata",
+        "plan_service_action.json",
+    );
+    let manifest_path = output_dir.join("Cargo.toml");
+
+    let output = Command::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--no-deps")
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .output()
+        .expect("run cargo metadata for generated service/action package");
+
+    assert!(
+        output.status.success(),
+        "cargo metadata failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn generated_package_is_readable_by_cargo_metadata() {
     let output_dir =
         generate_workspace_backed_fixture("generated_package_cargo_metadata", "plan_pub_sub.json");
