@@ -31,8 +31,8 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 toml_edit = "0.22"
 cargo_metadata = "0.18"
-play_launch_parser = { path = "../../../../../play_launch/src/play_launch_parser/crates/play_launch_parser", optional = true }
-ros-launch-manifest-types = { path = "../../../../../play_launch/src/ros-launch-manifest/types" }
+play_launch_parser = { path = "../../third-party/play_launch_parser/crates/play_launch_parser", optional = true }
+ros-launch-manifest-types = { path = "../../third-party/ros-launch-manifest/types" }
 
 # Reuse generate-{rust,c,cpp} surface from cargo-nano-ros — avoids
 # re-implementing codegen and keeps `nros generate` byte-for-byte
