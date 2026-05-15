@@ -669,10 +669,20 @@ fn schema_entity(instance_id: &str, entity: &Value) -> Option<Value> {
         "manifest_endpoint": null,
     });
     match role {
-        "publisher" | "subscriber" => Some(json!({
+        "publisher" => Some(json!({
             "role": role,
             "id": id,
             "source_entity": source_entity,
+            "resolved_name": entity.get("resolved_name").and_then(Value::as_str).unwrap_or(""),
+            "interface": schema_interface(entity.get("type"))?,
+            "qos": schema_qos(entity.get("qos")),
+            "trace": trace,
+        })),
+        "subscriber" => Some(json!({
+            "role": role,
+            "id": id,
+            "source_entity": source_entity,
+            "callback": entity.get("callback"),
             "resolved_name": entity.get("resolved_name").and_then(Value::as_str).unwrap_or(""),
             "interface": schema_interface(entity.get("type"))?,
             "qos": schema_qos(entity.get("qos")),
@@ -682,10 +692,21 @@ fn schema_entity(instance_id: &str, entity: &Value) -> Option<Value> {
             "role": "timer",
             "id": id,
             "source_entity": source_entity,
+            "callback": entity.get("callback"),
             "period_ms": entity.get("period_ms").and_then(Value::as_u64).unwrap_or(0),
             "trace": trace,
         })),
-        "service_server" | "service_client" | "action_server" | "action_client" => Some(json!({
+        "service_server" | "action_server" => Some(json!({
+            "role": role,
+            "id": id,
+            "source_entity": source_entity,
+            "callback": entity.get("callback"),
+            "resolved_name": entity.get("resolved_name").and_then(Value::as_str).unwrap_or(""),
+            "interface": schema_interface(entity.get("type"))?,
+            "qos": null,
+            "trace": trace,
+        })),
+        "service_client" | "action_client" => Some(json!({
             "role": role,
             "id": id,
             "source_entity": source_entity,

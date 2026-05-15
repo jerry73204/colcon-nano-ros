@@ -84,6 +84,8 @@ pub enum PlanEntity {
     Subscriber {
         id: String,
         source_entity: String,
+        #[serde(default)]
+        callback: Option<String>,
         resolved_name: String,
         interface: InterfaceRef,
         qos: QosProfile,
@@ -92,12 +94,16 @@ pub enum PlanEntity {
     Timer {
         id: String,
         source_entity: String,
+        #[serde(default)]
+        callback: Option<String>,
         period_ms: u64,
         trace: EntityTrace,
     },
     ServiceServer {
         id: String,
         source_entity: String,
+        #[serde(default)]
+        callback: Option<String>,
         resolved_name: String,
         interface: InterfaceRef,
         qos: Option<QosProfile>,
@@ -114,6 +120,8 @@ pub enum PlanEntity {
     ActionServer {
         id: String,
         source_entity: String,
+        #[serde(default)]
+        callback: Option<String>,
         resolved_name: String,
         interface: InterfaceRef,
         qos: Option<QosProfile>,

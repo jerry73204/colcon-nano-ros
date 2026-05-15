@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use super::{
     NrosPlan,
-    plan::{PlanBuildOptions, PlanSchedContext},
+    plan::{PlanBuildOptions, PlanEntity, PlanInstance, PlanSchedContext},
     schema::{DeadlinePolicy, ParameterValue, SchedClass},
 };
 
@@ -74,7 +74,12 @@ fn render_cargo_toml(options: &GenerateOptions, plan: &NrosPlan) -> String {
         )
         .replace(
             "{{ component_dependencies }}",
-            &render_component_dependencies(options, plan),
+            &format!(
+                "{}{}{}",
+                render_platform_dependencies(options, plan),
+                render_backend_dependencies(options, plan),
+                render_component_dependencies(options, plan)
+            ),
         )
 }
 
@@ -118,6 +123,65 @@ fn render_component_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> 
             )
         })
         .collect()
+}
+
+fn render_platform_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> String {
+    let Some(workspace) = workspace_from_nros_path(&options.nros_path) else {
+        return String::new();
+    };
+    if platform_feature(&plan.build.board, &plan.build.target) != Some("platform-posix") {
+        return String::new();
+    }
+    format!(
+        "nros-platform-cffi = {{ path = \"{}\", default-features = false, features = [\"posix-c-port\"] }}\n",
+        path_for_template(&workspace.join("packages/core/nros-platform-cffi")),
+    )
+}
+
+fn render_backend_dependencies(options: &GenerateOptions, plan: &NrosPlan) -> String {
+    let Some(workspace) = workspace_from_nros_path(&options.nros_path) else {
+        return String::new();
+    };
+    match plan.build.rmw.as_str() {
+        "zenoh" | "rmw-zenoh" | "rmw-zenoh-cffi" => format!(
+            "nros-rmw-zenoh = {{ path = \"{}\", default-features = false, features = {} }}\n",
+            path_for_template(&workspace.join("packages/zpico/nros-rmw-zenoh")),
+            toml_string_array(&backend_features(&plan.build, "zenoh")),
+        ),
+        "xrce" | "rmw-xrce" | "rmw-xrce-cffi" => format!(
+            "nros-rmw-xrce-cffi = {{ path = \"{}\", default-features = false, features = {} }}\n",
+            path_for_template(&workspace.join("packages/xrce/nros-rmw-xrce-cffi")),
+            toml_string_array(&backend_features(&plan.build, "xrce")),
+        ),
+        "dds" | "rmw-dds" | "rmw-dds-cffi" => format!(
+            "nros-rmw-dds = {{ path = \"{}\", default-features = false, features = {} }}\n",
+            path_for_template(&workspace.join("packages/dds/nros-rmw-dds")),
+            toml_string_array(&backend_features(&plan.build, "dds")),
+        ),
+        _ => String::new(),
+    }
+}
+
+fn workspace_from_nros_path(nros_path: &Path) -> Option<PathBuf> {
+    nros_path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+}
+
+fn backend_features(build: &PlanBuildOptions, backend: &str) -> Vec<String> {
+    let mut features = Vec::new();
+    if uses_std(build) {
+        features.push("std".to_string());
+    }
+    if let Some(platform) = platform_feature(&build.board, &build.target) {
+        features.push(platform.to_string());
+    }
+    if backend == "zenoh" {
+        features.push("link-tcp".to_string());
+    }
+    features
 }
 
 fn write_if_changed(path: &Path, contents: &str) -> Result<()> {
@@ -261,6 +325,7 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
         "pub const SCHED_CONTEXT_COUNT: usize = {};\n\n",
         plan.sched_contexts.len()
     ));
+    render_backend_register_fn(&mut out, plan);
     render_components(&mut out, plan);
     render_instances(&mut out, plan);
     render_nodes(&mut out, plan);
@@ -306,7 +371,8 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     out.push_str("        self.executor.node_builder(name).namespace(namespace).domain_id(domain_id).build().map_err(|_| nros::ComponentError::Runtime)\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
-    out.push_str("pub fn instantiate_components(executor: &mut nros::Executor, _handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
+    out.push_str("unsafe extern \"C\" fn noop_raw_subscription(_data: *const u8, _len: usize, _context: *mut core::ffi::c_void) {}\n\n");
+    out.push_str("pub fn instantiate_components(executor: &mut nros::Executor, handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
     out.push_str("    for instance in INSTANCES.iter() {\n");
     out.push_str("        let mut node_runtime = GeneratedNodeRuntime { executor, instance };\n");
     out.push_str("        let mut runtime = nros::ComponentRuntimeAdapter::<_, MAX_NODES, MAX_ENTITIES, CALLBACK_COUNT>::new(&mut node_runtime);\n");
@@ -324,9 +390,33 @@ fn render_generated_tables(plan: &NrosPlan) -> String {
     out.push_str("            _ => return Err(nros::NodeError::NotInitialized),\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
+    out.push_str("    instantiate_callback_handles(executor, handles)?;\n");
+    out.push_str("    Ok(())\n");
+    out.push_str("}\n");
+    out.push_str("\nfn instantiate_callback_handles(executor: &mut nros::Executor, handles: &mut CallbackHandleTable<CALLBACK_COUNT>) -> Result<(), nros::NodeError> {\n");
+    for line in render_callback_registrations(plan) {
+        out.push_str(&line);
+    }
     out.push_str("    Ok(())\n");
     out.push_str("}\n");
     out
+}
+
+fn render_backend_register_fn(out: &mut String, plan: &NrosPlan) {
+    out.push_str("pub fn register_backends() {\n");
+    match plan.build.rmw.as_str() {
+        "zenoh" | "rmw-zenoh" | "rmw-zenoh-cffi" => {
+            out.push_str("    let _ = nros_rmw_zenoh::register();\n");
+        }
+        "xrce" | "rmw-xrce" | "rmw-xrce-cffi" => {
+            out.push_str("    let _ = nros_rmw_xrce_cffi::register();\n");
+        }
+        "dds" | "rmw-dds" | "rmw-dds-cffi" => {
+            out.push_str("    let _ = nros_rmw_dds::register();\n");
+        }
+        _ => {}
+    }
+    out.push_str("}\n\n");
 }
 
 fn render_components(out: &mut String, plan: &NrosPlan) {
@@ -432,6 +522,119 @@ fn render_parameters(out: &mut String, plan: &NrosPlan) {
         out.push_str(&parameter);
     }
     out.push_str("];\n\n");
+}
+
+fn render_callback_registrations(plan: &NrosPlan) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut callback_index = 0usize;
+    for instance in &plan.instances {
+        for callback in &instance.callbacks {
+            match find_callback_entity(
+                instance,
+                callback.id.as_str(),
+                callback.source_callback.as_str(),
+            ) {
+                Some((_node_id, PlanEntity::Timer { period_ms, .. })) => {
+                    out.push(format!(
+                        "    let handle_{callback_index} = executor.register_timer(nros::TimerDuration::from_millis({period_ms}), || {{}})?;\n"
+                    ));
+                    out.push(format!(
+                        "    handles.set({callback_index}, handle_{callback_index}).map_err(|_| nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                }
+                Some((
+                    node_id,
+                    PlanEntity::Subscriber {
+                        resolved_name,
+                        interface,
+                        ..
+                    },
+                )) => {
+                    out.push(format!(
+                        "    let node_{callback_index} = NODES.iter().find(|node| node.node_id == {node_id:?}).ok_or(nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                    out.push(format!(
+                        "    let node_handle_{callback_index} = executor.node_id_by_name(node_{callback_index}.node_name, node_{callback_index}.namespace).ok_or(nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                    out.push(format!(
+                        "    let handle_{callback_index} = executor.register_subscription_raw_with_qos_sized_on::<1024>(node_handle_{callback_index}, {topic:?}, {type_name:?}, {type_hash:?}, nros::QosSettings::default().keep_last(1), noop_raw_subscription, core::ptr::null_mut())?;\n",
+                        topic = resolved_name,
+                        type_name = interface_type_name(interface),
+                        type_hash = interface_type_hash(interface),
+                    ));
+                    out.push(format!(
+                        "    handles.set({callback_index}, handle_{callback_index}).map_err(|_| nros::NodeError::InvalidSchedContextBinding)?;\n"
+                    ));
+                }
+                _ => {
+                    out.push(format!(
+                        "    return Err(nros::NodeError::NotInitialized); // unsupported generated callback: {:?}\n",
+                        callback.id
+                    ));
+                }
+            }
+            callback_index += 1;
+        }
+    }
+    out
+}
+
+fn find_callback_entity<'a>(
+    instance: &'a PlanInstance,
+    callback_id: &str,
+    source_callback: &str,
+) -> Option<(&'a str, &'a PlanEntity)> {
+    let mut callback_entities = Vec::new();
+    for node in &instance.nodes {
+        for entity in &node.entities {
+            if entity_callback_id(entity).is_some_and(|entity_callback| {
+                entity_callback == callback_id || entity_callback == source_callback
+            }) {
+                return Some((node.id.as_str(), entity));
+            }
+            if entity_callback_id(entity).is_some() {
+                callback_entities.push((node.id.as_str(), entity));
+            }
+        }
+    }
+    if let Some(entity) = callback_entities.iter().copied().find(|(_, entity)| {
+        matches!(entity, PlanEntity::Timer { .. }) && source_callback.contains("timer")
+    }) {
+        return Some(entity);
+    }
+    if let Some(entity) = callback_entities.iter().copied().find(|(_, entity)| {
+        matches!(entity, PlanEntity::Subscriber { .. })
+            && (source_callback.contains("message") || source_callback.contains("sub"))
+    }) {
+        return Some(entity);
+    }
+    if callback_entities.len() == 1 {
+        return callback_entities.first().copied();
+    }
+    None
+}
+
+fn entity_callback_id(entity: &PlanEntity) -> Option<&str> {
+    match entity {
+        PlanEntity::Subscriber { id, callback, .. } => callback.as_deref().or(Some(id.as_str())),
+        PlanEntity::Timer { id, callback, .. } => callback.as_deref().or(Some(id.as_str())),
+        PlanEntity::ServiceServer { id, callback, .. } => callback.as_deref().or(Some(id.as_str())),
+        PlanEntity::ActionServer { id, callback, .. } => callback.as_deref().or(Some(id.as_str())),
+        _ => None,
+    }
+}
+
+fn interface_type_name(interface: &super::schema::InterfaceRef) -> String {
+    let (namespace, name) = split_interface_name(&interface.name);
+    format!("{}::{}::dds_::{}_", interface.package, namespace, name)
+}
+
+fn interface_type_hash(interface: &super::schema::InterfaceRef) -> String {
+    format!("{}/{}", interface.package, interface.name)
+}
+
+fn split_interface_name(name: &str) -> (&str, &str) {
+    name.split_once('/').unwrap_or(("msg", name))
 }
 
 fn render_sched_context(sc: &PlanSchedContext) -> String {

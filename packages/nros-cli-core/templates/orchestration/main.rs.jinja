@@ -11,6 +11,7 @@ fn main() -> Result<(), nros::NodeError> {
     #[cfg(not(feature = "std"))]
     let config =
         ExecutorConfig::default_const().node_name(nros_generated::SYSTEM.default_node_name());
+    nros_generated::register_backends();
     let mut executor = Executor::open(&config)?;
     let mut callback_handles = CallbackHandleTable::<{ nros_generated::CALLBACK_COUNT }>::new();
 

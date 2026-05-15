@@ -76,6 +76,7 @@ fn generated_package_writes_manifest_build_script_and_main() {
             "nros-orchestration = { path = \"/workspace/packages/core/nros-orchestration\""
         )
     );
+    assert!(cargo_toml.contains("nros-platform-cffi = { path = \"/workspace/packages/core/nros-platform-cffi\", default-features = false, features = [\"posix-c-port\"] }"));
     assert!(!cargo_toml.contains("nros-cli-core"));
     assert!(!cargo_toml.contains("serde_json"));
 
@@ -98,10 +99,15 @@ fn generated_package_writes_manifest_build_script_and_main() {
     assert!(build_rs.contains("SchedClassSpec::Fifo"));
     assert!(build_rs.contains("PrioritySpec::BestEffort"));
     assert!(build_rs.contains("deadline_policy: DeadlinePolicySpec::Activated"));
+    assert!(build_rs.contains("pub fn register_backends()"));
+    assert!(build_rs.contains("nros_rmw_zenoh::register()"));
+    assert!(build_rs.contains("instantiate_callback_handles"));
+    assert!(build_rs.contains("handles.set("));
     assert!(!build_rs.contains("serde_json"));
     assert!(!build_rs.contains("nros_cli_core"));
 
     let main_rs = fs::read_to_string(output_dir.join("src/main.rs")).expect("read main.rs");
+    assert!(main_rs.contains("nros_generated::register_backends();"));
     assert!(main_rs.contains("Executor::open"));
     assert!(main_rs.contains("#[cfg(feature = \"std\")]"));
     assert!(main_rs.contains("ExecutorConfig::from_env()"));
@@ -142,6 +148,7 @@ fn generated_package_features_follow_rtos_plan() {
     ));
     assert!(!cargo_toml.contains("\"std\""));
     assert!(!cargo_toml.contains("platform-posix"));
+    assert!(!cargo_toml.contains("nros-platform-cffi"));
 }
 
 #[test]
