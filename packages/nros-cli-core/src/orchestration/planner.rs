@@ -542,6 +542,11 @@ fn schema_instance(instance: &Value) -> Value {
     let nodes = schema_nodes(id, &source_nodes, &raw_entities);
     let callbacks = schema_callbacks(id, instance.get("callbacks"));
     let sched_bindings = schema_sched_bindings(&callbacks);
+    let default_source_node = source_nodes
+        .first()
+        .and_then(|node| node.get("id"))
+        .and_then(Value::as_str)
+        .unwrap_or("node");
     json!({
         "id": id,
         "component": format!("{package}::{executable}"),
@@ -552,7 +557,7 @@ fn schema_instance(instance: &Value) -> Value {
         "remaps": schema_remaps(instance.get("remaps")),
         "nodes": nodes,
         "callbacks": callbacks,
-        "parameters": schema_parameters(id, instance.get("parameters")),
+        "parameters": schema_parameters(id, default_source_node, instance.get("parameters")),
         "sched_bindings": sched_bindings,
         "trace": {
             "launch_record_entity": format!("record://{id}"),
@@ -735,7 +740,11 @@ fn schema_qos(value: Option<&Value>) -> Value {
     })
 }
 
-fn schema_parameters(instance_id: &str, value: Option<&Value>) -> Vec<Value> {
+fn schema_parameters(
+    instance_id: &str,
+    default_source_node: &str,
+    value: Option<&Value>,
+) -> Vec<Value> {
     let Some(Value::Object(map)) = value else {
         return Vec::new();
     };
@@ -743,7 +752,7 @@ fn schema_parameters(instance_id: &str, value: Option<&Value>) -> Vec<Value> {
         .filter(|(name, _)| name.as_str() != "parameter_files")
         .map(|(name, value)| {
             json!({
-                "node": format!("{instance_id}/node"),
+                "node": format!("{instance_id}/{default_source_node}"),
                 "name": name,
                 "value": schema_parameter_value(value),
                 "source": {
